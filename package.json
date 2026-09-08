@@ -20,6 +20,7 @@
     "test:db": "tsx --test $(find apps/api/src -type f -name '*.test.ts')",
     "test:all": "pnpm test && pnpm test:web && pnpm test:db",
     "agent:smoke": "tsx evaluation/smoke.ts",
+    "agent:smoke:finalizer": "tsx evaluation/smoke-finalizer.ts",
     "pipeline:check": "tsx evaluation/pipeline-check.ts",
     "test:web": "tsx --tsconfig apps/web/tsconfig.json --test \"apps/web/src/**/*.test.tsx\"",
     "build:web": "pnpm --filter @credit/web build"

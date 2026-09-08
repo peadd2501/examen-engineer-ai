@@ -1,13 +1,16 @@
 import 'dotenv/config';
+import { randomUUID } from 'node:crypto';
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import { GuardrailViolationError, calcularIndicadores, type CitaPolitica, type Dictamen } from '@credit/contracts';
 import { rowToSolicitud, type ApplicationRow } from '../infrastructure/application-repository.js';
 import { citaReal, solicitudPorEtiqueta } from '../agents/testing/fixtures.js';
+import { FINALIZER_FUNCTION_NAME } from '../agents/finalizer.js';
 import { generarClaveIdempotencia, registrarDictamen } from './registrar-dictamen.js';
 import { autorizarDictamen } from './authorize-decision.js';
 import { analizarEntradaNoConfiable, calcularTopeAutoritativo, requiereAutorizacionHumana } from '../domain/guardrails/index.js';
+import { SolicitudSchema } from '@credit/contracts';
 
 pg.types.setTypeParser(1700, (v: string) => v);
 let pool: pg.Pool;
@@ -465,9 +468,169 @@ test('agent_iterations no guarda contenido ni razonamiento', async () => {
   }
 });
 
+// ============ Fases de iteracion (FASE 3.4) ============
+
+test('agent_iterations distingue la fase y no puede guardar los argumentos completos', async () => {
+  const { rows } = await pool.query<{ column_name: string; data_type: string }>(
+    `SELECT column_name, data_type FROM information_schema.columns
+      WHERE table_name = 'agent_iterations' ORDER BY 1`);
+  const columnas = new Map(rows.map((r) => [r.column_name, r.data_type]));
+
+  for (const esperada of ['phase', 'function_name', 'arguments_length']) {
+    assert.ok(columnas.has(esperada), `falta la columna ${esperada}`);
+  }
+  // Longitud, nunca contenido: si esto fuera text/jsonb cabrian los argumentos.
+  assert.equal(columnas.get('arguments_length'), 'integer');
+  for (const prohibida of ['arguments', 'function_arguments', 'tool_arguments']) {
+    assert.ok(!columnas.has(prohibida), `agent_iterations no deberia tener columna ${prohibida}`);
+  }
+});
+
+test('la base de datos solo admite las tres fases declaradas', async () => {
+  const { iniciarAgentRun, registrarIteraciones } =
+    await import('../infrastructure/repositories/agent-run-repository.js');
+
+  const runId = await iniciarAgentRun(pool, {
+    sessionId: randomUUID(),
+    applicationId: await solicitudPorEtiqueta(pool, 'EVAL-CASE-01'),
+    configuredModel: 'test/model',
+    provider: 'scripted',
+  });
+
+  const base = {
+    finishReason: 'tool_calls', inputTokens: 10, outputTokens: 5, reasoningTokens: 0,
+    contentLengthChars: 0, toolCallCount: 1, toolNames: [], toolArgumentLengths: [],
+    functionName: null, argumentsLength: 0, hadFinalContent: false, schemaValid: false,
+  };
+  await registrarIteraciones(pool, runId, [
+    { iteration: 1, phase: 'AGENT', ...base },
+    { iteration: 2, phase: 'FINALIZER', ...base, functionName: FINALIZER_FUNCTION_NAME, argumentsLength: 181 },
+    { iteration: 3, phase: 'FINALIZER_REPAIR', ...base, functionName: FINALIZER_FUNCTION_NAME, argumentsLength: 0 },
+  ]);
+
+  const { rows } = await pool.query<{ phase: string; function_name: string | null; arguments_length: number }>(
+    'SELECT phase, function_name, arguments_length FROM agent_iterations WHERE agent_run_id = $1 ORDER BY iteration',
+    [runId],
+  );
+  assert.deepEqual(rows.map((r) => r.phase), ['AGENT', 'FINALIZER', 'FINALIZER_REPAIR']);
+  assert.equal(rows[0]?.function_name, null, 'la fase de agente no nombra al finalizer');
+  assert.equal(rows[1]?.function_name, FINALIZER_FUNCTION_NAME);
+  assert.equal(Number(rows[1]?.arguments_length), 181);
+
+  // Una fase inventada no puede entrar: el CHECK vive en la base, no solo en TS.
+  await assert.rejects(
+    pool.query(
+      "INSERT INTO agent_iterations (agent_run_id, iteration, phase) VALUES ($1, 99, 'OUTPUT_PARSING')",
+      [runId],
+    ),
+    /check constraint/i,
+  );
+});
+
 test('la semilla de inferencia se registra en el run', async () => {
   const { rows } = await pool.query<{ column_name: string }>(
     `SELECT column_name FROM information_schema.columns
       WHERE table_name = 'agent_runs' AND column_name = 'inference_seed'`);
   assert.equal(rows.length, 1);
+});
+
+// ============ G4 consume solo el riesgo autoritativo (FASE 3.3) ============
+
+test('G4: el nivel de riesgo del backend es el que decide, no el del modelo', async () => {
+  const { calcularNivelRiesgo, calcularIndicadores } = await import('@credit/contracts');
+
+  // CASE-09: score 80, monto 120k. Ninguna condicion de ALTO del corpus aplica.
+  const id = await solicitudPorEtiqueta(pool, 'EVAL-CASE-09');
+  const { rows } = await pool.query<ApplicationRow>('SELECT * FROM applications WHERE id = $1', [id]);
+  const solicitud = rowToSolicitud(rows[0]!);
+  const riesgo = calcularNivelRiesgo(solicitud, calcularIndicadores(solicitud));
+
+  assert.equal(riesgo.nivel, 'MEDIO', 'el corpus no sustenta ALTO para este perfil');
+  assert.equal(requiereAutorizacionHumana('120000.00', riesgo.nivel), false);
+
+  // Con el ALTO que devolvio el modelo en la corrida live, G4 si se activaria.
+  // Por eso el campo dejo de venir del modelo.
+  assert.equal(requiereAutorizacionHumana('120000.00', 'ALTO'), true);
+});
+
+test('G4: un dictamen persistido usa el riesgo autoritativo, no el propuesto', async () => {
+  const real = await citaReal(pool, 'POL-2.1');
+  const { id, dictamen } = await solicitudYDictamen('EVAL-CASE-09', {
+    politicas_citadas: [real],
+    monto_recomendado: '80000.00',
+    // Lo que el modelo "queria": marcar ALTO para forzar autorizacion.
+    nivel_riesgo: 'MEDIO',
+  });
+  const { confirmacion } = await registrarDictamen(pool, {
+    id_solicitud: id, dictamen, clave_idempotencia: clave('g4-riesgo-autoritativo'),
+    politicasRecuperadas: ['POL-2.1'],
+  });
+  assert.equal(confirmacion.requiere_autorizacion_humana, false);
+  assert.equal(confirmacion.operational_status, 'GENERATED');
+});
+
+test('G4: score en banda de vigilancia si activa autorizacion, con respaldo de POL-3.2', async () => {
+  const { calcularNivelRiesgo, calcularIndicadores, SolicitudSchema } = await import('@credit/contracts');
+  const id = await solicitudPorEtiqueta(pool, 'EVAL-CASE-01');
+  const { rows } = await pool.query<ApplicationRow>('SELECT * FROM applications WHERE id = $1', [id]);
+  const base = rowToSolicitud(rows[0]!);
+  const enVigilancia = SolicitudSchema.parse({ ...base, score_historial: 65 });
+
+  const riesgo = calcularNivelRiesgo(enVigilancia, calcularIndicadores(enVigilancia));
+  assert.equal(riesgo.nivel, 'ALTO');
+  assert.equal(riesgo.factores[0]?.politica, 'POL-3.2');
+  assert.equal(requiereAutorizacionHumana('50000.00', riesgo.nivel), true);
+});
+
+// ============ G5: el texto crudo no entra al contexto decisional ============
+
+test('G5: los inputs decisionales son identicos con y sin inyeccion', async () => {
+  const { calcularNivelRiesgo, calcularIndicadores, SolicitudSchema } = await import('@credit/contracts');
+  const { calcularTopeAutoritativo } = await import('../domain/guardrails/amount.guardrail.js');
+
+  const id = await solicitudPorEtiqueta(pool, 'EVAL-CASE-01');
+  const { rows } = await pool.query<ApplicationRow>('SELECT * FROM applications WHERE id = $1', [id]);
+  const limpia = rowToSolicitud(rows[0]!);
+
+  const { rows: inyecciones } = await pool.query<{ funds_destination: string }>(
+    "SELECT funds_destination FROM applications WHERE company_name LIKE 'ADV-INJ%' ORDER BY company_name",
+  );
+  assert.equal(inyecciones.length, 5);
+
+  const referencia = {
+    indicadores: calcularIndicadores(limpia),
+    riesgo: calcularNivelRiesgo(limpia, calcularIndicadores(limpia)),
+    tope: calcularTopeAutoritativo(limpia),
+  };
+
+  for (const { funds_destination } of inyecciones) {
+    const conInyeccion = SolicitudSchema.parse({ ...limpia, destino_fondos: funds_destination });
+    const indicadores = calcularIndicadores(conInyeccion);
+    assert.deepEqual(indicadores, referencia.indicadores, 'los indicadores cambiaron');
+    assert.deepEqual(calcularNivelRiesgo(conInyeccion, indicadores), referencia.riesgo, 'el riesgo cambio');
+    assert.deepEqual(calcularTopeAutoritativo(conInyeccion), referencia.tope, 'el tope cambio');
+  }
+});
+
+test('G5: el destino se resume a un vocabulario cerrado', async () => {
+  const { CATEGORIAS_DESTINO, resumirDestinoFondos } = await import('../domain/guardrails/untrusted-input.guardrail.js');
+
+  const { rows } = await pool.query<{ funds_destination: string }>(
+    "SELECT funds_destination FROM applications WHERE company_name LIKE 'ADV-INJ%'",
+  );
+  for (const { funds_destination } of rows) {
+    const resumen = resumirDestinoFondos(funds_destination);
+    assert.ok(CATEGORIAS_DESTINO.includes(resumen.categoria), 'categoria fuera del vocabulario');
+    assert.equal(resumen.marcado_no_confiable, true);
+    // El resumen no puede contener texto del solicitante.
+    assert.ok(!JSON.stringify(resumen).includes('Ignore'));
+    assert.ok(!JSON.stringify(resumen).includes('999999'));
+  }
+});
+
+test('G5: un destino legitimo se clasifica sin marcarse', async () => {
+  const { resumirDestinoFondos } = await import('../domain/guardrails/untrusted-input.guardrail.js');
+  const r = resumirDestinoFondos('Compra de dos unidades de reparto para la ruta del sur.');
+  assert.equal(r.categoria, 'unidades_transporte');
+  assert.equal(r.marcado_no_confiable, false);
 });

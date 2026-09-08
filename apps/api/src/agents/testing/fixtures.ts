@@ -29,7 +29,8 @@ export interface CandidatoOpts {
   plazo?: number | null;
   /** Referencias a politicas. El modelo ya no escribe texto de cita. */
   policyIds?: string[];
-  riesgo?: 'BAJO' | 'MEDIO' | 'ALTO';
+  /** Nivel que el modelo INTENTA imponer. El backend lo ignora (FASE 3.3). */
+  riesgoInventado?: 'BAJO' | 'MEDIO' | 'ALTO';
   confianza?: number;
   motivos?: string[];
 }
@@ -42,7 +43,8 @@ export function candidato(opts: CandidatoOpts = {}): Record<string, unknown> {
     plazo_recomendado_meses: opts.plazo === undefined ? 24 : opts.plazo,
     policy_ids: opts.policyIds ?? [],
     motivos: opts.motivos ?? ['Indicadores dentro de los umbrales de politica.'],
-    nivel_riesgo: opts.riesgo ?? 'BAJO',
+    // Se emite solo si el test quiere probar que el backend lo descarta.
+    ...(opts.riesgoInventado ? { nivel_riesgo: opts.riesgoInventado } : {}),
     confianza: opts.confianza ?? 0.85,
   };
 }

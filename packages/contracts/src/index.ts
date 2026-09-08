@@ -5,6 +5,7 @@ export * from './enums.js';
 export * from './application.js';
 export * from './indicators.js';
 export * from './indicators-calc.js';
+export * from './risk.js';
 export * from './policy.js';
 export * from './decision.js';
 export * from './metrics.js';

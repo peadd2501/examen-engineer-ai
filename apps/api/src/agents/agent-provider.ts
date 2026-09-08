@@ -34,8 +34,12 @@ export interface AgentToolCallRecord {
  * chain-of-thought: solo tamanos, conteos y banderas. Es lo suficiente para
  * diagnosticar una generacion descontrolada sin guardar nada sensible.
  */
+/** Fase del run a la que pertenece la llamada. */
+export type FaseIteracion = 'AGENT' | 'FINALIZER' | 'FINALIZER_REPAIR';
+
 export interface AgentIterationDiagnostic {
   iteration: number;
+  phase: FaseIteracion;
   finishReason: string | null;
   inputTokens: number;
   outputTokens: number;
@@ -46,6 +50,10 @@ export interface AgentIterationDiagnostic {
   toolNames: string[];
   /** Longitud en caracteres de los argumentos JSON de cada tool call. */
   toolArgumentLengths: number[];
+  /** Nombre de la funcion invocada en las fases de finalizacion. */
+  functionName: string | null;
+  /** Longitud de los argumentos, nunca su contenido. */
+  argumentsLength: number;
   hadFinalContent: boolean;
   /** true si el contenido final valido contra DictamenLLMSchema. */
   schemaValid: boolean;

@@ -107,3 +107,70 @@ export function guionQueFalla(error: Error): { chat: ChatFn } {
     },
   };
 }
+
+/**
+ * Respuesta del agente sin tool calls: cierra la fase de recoleccion de
+ * evidencia y da paso al finalizer.
+ */
+export function respuestaSinTools(finishReason = 'stop'): ChatResponse {
+  return {
+    message: { role: 'assistant', content: '' },
+    finishReason,
+    usage: { inputTokens: 900, outputTokens: 10, reasoningTokens: 0, cost: null },
+    resolvedModel: 'scripted/deterministic',
+    raw: {},
+  };
+}
+
+/** Llamada valida a la funcion forzada del finalizer. */
+export function respuestaFinalizer(
+  argumentos: unknown,
+  opciones: { nombre?: string; finishReason?: string; llamadas?: number } = {},
+): ChatResponse {
+  const nombre = opciones.nombre ?? 'emitir_dictamen_estructurado';
+  const cuantas = opciones.llamadas ?? 1;
+  return {
+    message: {
+      role: 'assistant',
+      content: null,
+      tool_calls: Array.from({ length: cuantas }, (_, i) => ({
+        id: `fin_${i}`,
+        type: 'function' as const,
+        function: {
+          name: nombre,
+          arguments: typeof argumentos === 'string' ? argumentos : JSON.stringify(argumentos),
+        },
+      })),
+    },
+    finishReason: opciones.finishReason ?? 'tool_calls',
+    usage: { inputTokens: 4200, outputTokens: 180, reasoningTokens: 0, cost: null },
+    resolvedModel: 'scripted/deterministic',
+    raw: {},
+  };
+}
+
+/** El finalizer no llama a ninguna funcion. */
+export function respuestaFinalizerSinLlamada(finishReason = 'stop'): ChatResponse {
+  return {
+    message: { role: 'assistant', content: 'No puedo emitir el dictamen.' },
+    finishReason,
+    usage: { inputTokens: 4200, outputTokens: 20, reasoningTokens: 0, cost: null },
+    resolvedModel: 'scripted/deterministic',
+    raw: {},
+  };
+}
+
+/** El finalizer se trunca. */
+export function respuestaFinalizerTruncada(outputTokens = 1200, reasoningTokens = 1150): ChatResponse {
+  return {
+    message: {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'fin_0', type: 'function', function: { name: 'emitir_dictamen_estructurado', arguments: '{"decision":"APROB' } }],
+    },
+    finishReason: 'length',
+    usage: { inputTokens: 4353, outputTokens, reasoningTokens, cost: null },
+    resolvedModel: 'scripted/deterministic',
+    raw: {},
+  };
+}

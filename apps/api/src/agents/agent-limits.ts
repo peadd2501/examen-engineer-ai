@@ -10,6 +10,18 @@ export interface AgentLimits {
   providerTimeoutMs: number;
   totalExecutionTimeoutMs: number;
   maxOutputTokens: number;
+  /**
+   * Techo de salida de la reparacion por truncacion. Deliberadamente mas bajo
+   * que el normal: un dictamen ocupa ~250 caracteres, y un techo estrecho es
+   * parte del mensaje. Si aqui tambien se trunca, el problema no es el
+   * presupuesto.
+   */
+  maxRepairOutputTokens: number;
+  /**
+   * Techo de la fase de finalizacion. El dictamen es pequeno; con function call
+   * forzada el proveedor no tiene que producir prosa antes del objeto.
+   */
+  maxFinalizerOutputTokens: number;
 }
 
 /**
@@ -28,6 +40,8 @@ export const DEFAULT_AGENT_LIMITS: AgentLimits = {
   // con reasoning en 'low' el consumo real debe quedar muy por debajo, y por eso
   // se registran reasoning_tokens y finish_reason para poder comprobarlo.
   maxOutputTokens: 5_000,
+  maxRepairOutputTokens: 1_400,
+  maxFinalizerOutputTokens: 1_200,
 };
 
 export type AgentFailureCode =
@@ -40,6 +54,8 @@ export type AgentFailureCode =
   | 'INVALID_PROVIDER_RESPONSE'
   | 'AGENT_SCHEMA_VALIDATION_FAILED'
   | 'STRUCTURED_OUTPUT_UNSUPPORTED'
+  /** El finalizer forzado no produjo un dictamen valido tras su unica reparacion. */
+  | 'FINALIZER_FAILED'
   /** El proveedor rechazo reasoning.effort. Nunca se degrada en silencio. */
   | 'REASONING_EFFORT_UNSUPPORTED'
   /** Otro parametro de la peticion fue rechazado por el proveedor. */

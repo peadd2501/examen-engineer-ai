@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { nullableMoneyString, moneyString, toMoney } from './money.js';
 import { DecisionSchema, NivelRiesgoSchema, OperationalStatusSchema } from './enums.js';
+// NivelRiesgoSchema se sigue usando en DictamenSchema (el contrato final del
+// examen lo exige); lo que cambia es quien lo produce.
 import { IndicadoresSchema } from './indicators.js';
 import { FragmentoPoliticaSchema } from './policy.js';
 
@@ -90,7 +92,11 @@ export const DictamenLLMSchema = z.object({
     .array(z.string().min(1).max(LIMITES_DICTAMEN_LLM.MOTIVO_MAX_CHARS))
     .min(LIMITES_DICTAMEN_LLM.MOTIVOS_MIN)
     .max(LIMITES_DICTAMEN_LLM.MOTIVOS_MAX),
-  nivel_riesgo: NivelRiesgoSchema,
+  // `nivel_riesgo` NO esta aqui a proposito: lo calcula el backend con
+  // calcularNivelRiesgo(). Es el mismo tratamiento que los indicadores. En
+  // CASE-09 el modelo devolvio ALTO sin respaldo del corpus y eso activo G4
+  // sobre un dato inventado; un campo que decide si hace falta firma humana no
+  // puede salir del modelo.
   confianza: z.number().min(0).max(1),
 });
 export type DictamenLLM = z.infer<typeof DictamenLLMSchema>;

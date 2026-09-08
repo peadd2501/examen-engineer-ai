@@ -133,15 +133,15 @@ export async function registrarIteraciones(
   for (const d of diagnosticos) {
     await pool.query(
       `INSERT INTO agent_iterations
-         (agent_run_id, iteration, finish_reason, input_tokens, output_tokens, reasoning_tokens,
+         (agent_run_id, iteration, phase, finish_reason, input_tokens, output_tokens, reasoning_tokens,
           content_length_chars, tool_call_count, tool_names, tool_argument_lengths,
-          had_final_content, schema_valid)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          function_name, arguments_length, had_final_content, schema_valid)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        ON CONFLICT (agent_run_id, iteration) DO NOTHING`,
       [
-        runId, d.iteration, d.finishReason, d.inputTokens, d.outputTokens, d.reasoningTokens,
+        runId, d.iteration, d.phase, d.finishReason, d.inputTokens, d.outputTokens, d.reasoningTokens,
         d.contentLengthChars, d.toolCallCount, d.toolNames, d.toolArgumentLengths,
-        d.hadFinalContent, d.schemaValid,
+        d.functionName, d.argumentsLength, d.hadFinalContent, d.schemaValid,
       ],
     );
   }

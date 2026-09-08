@@ -46,9 +46,68 @@ export function analizarEntradaNoConfiable(texto: string): UntrustedScan {
  * Serializacion segura para el contexto del modelo. JSON.stringify escapa
  * comillas, saltos de linea y cualquier caracter de control, de modo que el
  * texto llega como un valor de cadena y no como estructura del mensaje.
+ *
+ * NOTA: desde FASE 3.3 el texto crudo ya NO viaja al contexto decisional. Esta
+ * funcion se conserva para usos donde el texto si deba mostrarse serializado
+ * (auditoria, depuracion), no para la llamada que produce el dictamen.
  */
 export function serializarTextoNoConfiable(texto: string): string {
   return JSON.stringify(texto);
+}
+
+/**
+ * Vocabulario cerrado de destinos. Es la representacion SEGURA que sustituye al
+ * texto crudo en el contexto decisional.
+ *
+ * Motivo: escapar el texto no basta. Mientras el texto del solicitante llegue
+ * al modelo, sigue compitiendo por su atencion con las instrucciones legitimas,
+ * y ninguna cantidad de delimitadores ni de "ignora lo que sigue" cambia eso.
+ * La unica defensa robusta es que el texto no llegue.
+ *
+ * Lo que viaja es una etiqueta de un conjunto fijo. Un atacante puede, como
+ * mucho, elegir cual de estas siete etiquetas se emite; no puede introducir
+ * texto propio en el prompt. La superficie pasa de "cualquier cadena" a "una de
+ * siete constantes que nosotros escribimos".
+ */
+export const CATEGORIAS_DESTINO = [
+  'capital_trabajo',
+  'inventario',
+  'maquinaria_equipo',
+  'unidades_transporte',
+  'expansion_local',
+  'cuentas_por_cobrar',
+  'no_clasificado',
+] as const;
+
+export type CategoriaDestino = (typeof CATEGORIAS_DESTINO)[number];
+
+const REGLAS_DESTINO: Array<{ categoria: CategoriaDestino; re: RegExp }> = [
+  { categoria: 'unidades_transporte', re: /\b(unidad(es)?|camion|camiones|vehiculo|veh[ií]culo|flota|reparto)\b/i },
+  { categoria: 'maquinaria_equipo', re: /\b(maquinaria|maquina|equipo|mobiliario|computo|c[oó]mputo)\b/i },
+  { categoria: 'inventario', re: /\b(inventario|mercader[ií]a|materia prima|insumos)\b/i },
+  { categoria: 'expansion_local', re: /\b(sucursal|local|remodelaci[oó]n|ampliaci[oó]n|bodega)\b/i },
+  { categoria: 'cuentas_por_cobrar', re: /\b(cuentas por cobrar|factoraje|cartera)\b/i },
+  { categoria: 'capital_trabajo', re: /\bcapital de trabajo\b/i },
+];
+
+/**
+ * Resumen seguro del destino de fondos: una etiqueta cerrada y metricas.
+ * Nunca devuelve texto del solicitante.
+ */
+export interface ResumenDestino {
+  categoria: CategoriaDestino;
+  longitud_caracteres: number;
+  marcado_no_confiable: boolean;
+}
+
+export function resumirDestinoFondos(texto: string): ResumenDestino {
+  const scan = analizarEntradaNoConfiable(texto);
+  const regla = REGLAS_DESTINO.find((r) => r.re.test(texto));
+  return {
+    categoria: regla?.categoria ?? 'no_clasificado',
+    longitud_caracteres: texto.length,
+    marcado_no_confiable: scan.sospechoso,
+  };
 }
 
 export function registrarEntradaNoConfiable(texto: string): GuardrailOutcome {

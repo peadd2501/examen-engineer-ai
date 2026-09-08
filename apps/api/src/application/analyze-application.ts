@@ -4,6 +4,7 @@ import {
   ApplicationNotFoundError,
   GuardrailViolationError,
   calcularIndicadores,
+  calcularNivelRiesgo,
   type Confirmacion,
   type Dictamen,
   type FragmentoPoliticaEnriquecido,
@@ -181,6 +182,20 @@ export async function analizarSolicitud(
 
   const { policy_ids: _referencias, ...candidatoSinReferencias } = resultado.candidato;
 
+  // --- Nivel de riesgo autoritativo ----------------------------------------
+  // Lo calcula el backend sobre indicadores y datos estructurados, con umbrales
+  // del corpus. El modelo ya no lo produce: en CASE-09 devolvio ALTO sin
+  // respaldo y eso activo G4 sobre un dato inventado.
+  const riesgo = calcularNivelRiesgo(solicitud, indicadores);
+  for (const factor of riesgo.factores) {
+    findings.push({
+      guardrail: 'G4',
+      code: 'RISK_FACTOR',
+      message: `${factor.codigo}: ${factor.detalle}`,
+      details: { politica: factor.politica, codigo: factor.codigo, nivel: riesgo.nivel },
+    });
+  }
+
   // --- Dictamen candidato + datos autoritativos ----------------------------
   const dictamen: Dictamen = {
     ...candidatoSinReferencias,
@@ -188,6 +203,8 @@ export async function analizarSolicitud(
     politicas_citadas: citas,
     // Los indicadores del dictamen SIEMPRE son los del backend (G2).
     indicadores,
+    // Y el nivel de riesgo tambien. G4 consume solo este valor.
+    nivel_riesgo: riesgo.nivel,
     // La necesidad de autorizacion la recalcula registrarDictamen (G4).
     requiere_autorizacion_humana: false,
   };

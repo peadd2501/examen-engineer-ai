@@ -28,7 +28,11 @@ export interface ChatMessage {
 export interface ChatRequest {
   messages: ChatMessage[];
   tools?: Array<Record<string, unknown>>;
-  toolChoice?: 'auto' | 'none';
+  /**
+   * 'auto' | 'none' o la forma forzada de OpenAI/OpenRouter:
+   * `{ type: 'function', function: { name } }`.
+   */
+  toolChoice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
   responseFormat?: Record<string, unknown>;
   maxTokens: number;
   temperature: number;

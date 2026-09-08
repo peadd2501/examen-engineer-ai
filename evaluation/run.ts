@@ -39,6 +39,9 @@ interface Resultado {
   resolvedModel: string | null;
   finishReason: string | null;
   diagnosticos: AnalyzeResult['iterationDiagnostics'];
+  nivelRiesgo: string | null;
+  estadoOperativo: string | null;
+  repairAttempted: boolean;
 }
 
 async function evaluarCaso(
@@ -68,6 +71,7 @@ async function evaluarCaso(
       decisionReal: 'ERROR', citas: [], requirioAutorizacion: false,
       latencyMs: 0, tokens: { input: 0, output: 0, reasoning: 0 }, costo: '0.000000',
       resolvedModel: null, finishReason: null, diagnosticos: [],
+      nivelRiesgo: null, estadoOperativo: null, repairAttempted: false,
     };
   }
 
@@ -159,6 +163,10 @@ async function evaluarCaso(
     tokens: { input: r.usage.inputTokens, output: r.usage.outputTokens, reasoning: r.usage.reasoningTokens },
     costo: r.usage.estimatedCost, resolvedModel: r.resolvedModel, finishReason: r.lastFinishReason,
     diagnosticos: r.iterationDiagnostics,
+    nivelRiesgo: r.dictamen?.nivel_riesgo ?? null,
+    estadoOperativo: r.confirmacion?.operational_status ?? null,
+    // Hubo reparacion si el loop uso mas de una llamada al proveedor.
+    repairAttempted: r.iterationDiagnostics.length > 1,
   };
 }
 
@@ -223,6 +231,13 @@ async function main(): Promise<void> {
     resultados.push(r);
     const estado = r.pass ? 'PASS' : 'FAIL';
     console.log(`${caso.id} ${estado}`);
+    // Diagnostico siempre visible: sin esto, un mismatch de autorizacion obliga
+    // a adivinar si vino del monto o del nivel de riesgo.
+    console.log(
+      `  decision=${r.decisionReal}  riesgo=${r.nivelRiesgo ?? '-'}  ` +
+      `autorizacion=${r.requirioAutorizacion}  estado=${r.estadoOperativo ?? '-'}  ` +
+      `reparacion=${r.repairAttempted}`,
+    );
     if (!r.pass) {
       console.log(`  esperada: ${caso.decisionEsperada}`);
       console.log(`  obtenida: ${r.decisionReal}`);

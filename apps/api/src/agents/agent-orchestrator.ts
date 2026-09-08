@@ -6,8 +6,15 @@ import type {
   AgentAnalysisResult,
   AgentIterationDiagnostic,
   AgentToolCallRecord,
+  FaseIteracion,
 } from './agent-provider.js';
-import { construirMensajes, construirResponseFormat } from './context-builder.js';
+import { construirMensajes } from './context-builder.js';
+import {
+  FINALIZER_FUNCTION_NAME,
+  construirMensajesFinalizer,
+  interpretarRespuestaFinalizer,
+  peticionFinalizer,
+} from './finalizer.js';
 import { cargarCorpusContext } from './corpus-context.js';
 import type { ChatMessage, ChatResponse } from './openrouter-client.js';
 import { ToolNotAllowedError, toProviderTools, type ToolContext, type ToolRegistry } from './tools/registry.js';
@@ -65,7 +72,6 @@ export async function ejecutarAgentLoop(
   // El corpus completo entra al contexto como bloque autoritativo, y sus ids
   // alimentan el enum del structured output.
   const corpus = await cargarCorpusContext(pool);
-  const responseFormat = construirResponseFormat(corpus.idsValidos);
 
   const mensajes = construirMensajes(input.solicitud, input.indicadores, corpus, input.consultaAnalista);
   const providerTools = toProviderTools(registry);
@@ -113,6 +119,9 @@ export async function ejecutarAgentLoop(
   });
 
   try {
+    // ===================== FASE 1: AGENTE =====================
+    // Recolecta evidencia con las herramientas de dominio. Ya NO produce el
+    // dictamen: eso es trabajo del finalizer.
     while (iterations < limits.maxIterations) {
       if (signal?.aborted) throw new AgentLoopError('CANCELLED', 'Ejecucion cancelada por el cliente', false);
       budget.assertNotExhausted();
@@ -123,7 +132,6 @@ export async function ejecutarAgentLoop(
           messages: mensajes,
           tools: providerTools,
           toolChoice: 'auto',
-          responseFormat,
           maxTokens: limits.maxOutputTokens,
           temperature: 0,
         },
@@ -133,143 +141,158 @@ export async function ejecutarAgentLoop(
       mensajes.push(response.message);
 
       const pedidas = response.message.tool_calls ?? [];
-      const diagnostico = registrarIteracion(iterationDiagnostics, iterations, response, pedidas);
+      registrarIteracion(iterationDiagnostics, iterations, 'AGENT', response, pedidas);
 
-      // El proveedor puede devolver varias tool calls en una sola respuesta.
-      if (pedidas.length > 0) {
-        if (toolCalls.length + pedidas.length > limits.maxToolCalls) {
-          throw new AgentLoopError(
-            'MAX_TOOL_CALLS_EXCEEDED',
-            `Se supero el limite de ${limits.maxToolCalls} llamadas a herramienta`,
-            true,
-          );
-        }
-
-        for (const pedida of pedidas) {
-          emitir({
-            type: 'tool.started',
-            label: ETIQUETA_TOOL[pedida.function.name] ?? `Ejecutando ${pedida.function.name}`,
-            data: { tool: pedida.function.name, sequence: toolCalls.length + 1 },
-          });
-
-          const politicasAntes = politicasRecuperadas.length;
-          const registro = await ejecutarHerramienta(registry, ctx, pedida, toolCalls.length + 1);
-          toolCalls.push(registro);
-          mensajes.push({
-            role: 'tool',
-            tool_call_id: pedida.id,
-            name: pedida.function.name,
-            content: JSON.stringify(
-              registro.status === 'OK' ? registro.result : { error: registro.errorMessage },
-            ),
-          });
-
-          emitir({
-            type: 'tool.completed',
-            label: `${ETIQUETA_TOOL[pedida.function.name] ?? pedida.function.name}: ${registro.status === 'OK' ? 'listo' : 'error'}`,
-            data: {
-              tool: registro.toolName,
-              sequence: registro.sequence,
-              status: registro.status,
-              latency_ms: registro.latencyMs,
-            },
-          });
-
-          // Las politicas recuperadas se anuncian por id: es la fuente que
-          // respaldara la decision, y el analista tiene que poder verla.
-          for (const politica of politicasRecuperadas.slice(politicasAntes)) {
-            emitir({
-              type: 'policy.found',
-              label: `Politica ${politica.id_politica} consultada`,
-              data: {
-                id_politica: politica.id_politica,
-                seccion: politica.seccion,
-                categoria: politica.categoria,
-                incluido_por_relacion: politica.incluido_por_relacion,
-              },
-            });
-          }
-        }
-        continue;
+      if (pedidas.length === 0) {
+        // El agente dejo de pedir herramientas: la evidencia esta completa.
+        break;
       }
 
-      // Sin tool calls: se espera el structured output final.
-      const parseado = parsearCandidato(response.message.content);
-      diagnostico.schemaValid = parseado.ok;
-      if (parseado.ok) {
-        emitir({
-          type: 'dictamen.partial',
-          label: 'Recomendacion generada, validando',
-          data: { decision: parseado.value.decision, nivel_riesgo: parseado.value.nivel_riesgo },
-        });
-        return resultado(parseado.value);
-      }
-
-      // La generacion se corto por techo de tokens. Reparar no sirve: la
-      // segunda respuesta se cortaria igual. Se clasifica aparte porque el
-      // arreglo es presupuesto de salida, no schema ni prompt.
-      if (response.finishReason === 'length') {
+      if (toolCalls.length + pedidas.length > limits.maxToolCalls) {
         throw new AgentLoopError(
-          'OUTPUT_TOKEN_LIMIT_EXCEEDED',
-          `La generacion se corto por limite de tokens (max_tokens=${limits.maxOutputTokens}, ` +
-            `salida=${response.usage.outputTokens}, razonamiento=${response.usage.reasoningTokens}) ` +
-            'sin producir un dictamen valido',
+          'MAX_TOOL_CALLS_EXCEEDED',
+          `Se supero el limite de ${limits.maxToolCalls} llamadas a herramienta`,
           true,
-          {
-            finish_reason: response.finishReason,
-            max_output_tokens: limits.maxOutputTokens,
-            output_tokens: response.usage.outputTokens,
-            reasoning_tokens: response.usage.reasoningTokens,
-          },
         );
       }
 
-      // Una unica reparacion estructurada. Nunca un retry ciego.
-      if (repairAttempted) {
-        throw fallaDeSalida(parseado.error, response, limits.maxOutputTokens);
-      }
-      repairAttempted = true;
-      mensajes.push({
-        role: 'user',
-        content: [
-          'Tu respuesta anterior no cumple el esquema requerido.',
-          `Errores detectados: ${parseado.error}`,
-          'Devuelve unicamente el objeto JSON valido. No agregues texto fuera del JSON.',
-        ].join('\n'),
-      });
+      for (const pedida of pedidas) {
+        emitir({
+          type: 'tool.started',
+          label: ETIQUETA_TOOL[pedida.function.name] ?? `Ejecutando ${pedida.function.name}`,
+          data: { tool: pedida.function.name, sequence: toolCalls.length + 1 },
+        });
 
-      budget.assertNotExhausted();
-      const reparada = await chat(
-        {
-          messages: mensajes,
-          responseFormat,
-          maxTokens: limits.maxOutputTokens,
-          temperature: 0,
-        },
-        signal,
-      );
-      acumularUso(reparada);
-      iterations += 1;
-      const diagReparacion = registrarIteracion(
-        iterationDiagnostics,
-        iterations,
-        reparada,
-        reparada.message.tool_calls ?? [],
-      );
+        const politicasAntes = politicasRecuperadas.length;
+        const registro = await ejecutarHerramienta(registry, ctx, pedida, toolCalls.length + 1);
+        toolCalls.push(registro);
+        mensajes.push({
+          role: 'tool',
+          tool_call_id: pedida.id,
+          name: pedida.function.name,
+          content: JSON.stringify(
+            registro.status === 'OK' ? registro.result : { error: registro.errorMessage },
+          ),
+        });
 
-      const reparado = parsearCandidato(reparada.message.content);
-      diagReparacion.schemaValid = reparado.ok;
-      if (reparado.ok) {
-        repairSucceeded = true;
-        return resultado(reparado.value);
+        emitir({
+          type: 'tool.completed',
+          label: `${ETIQUETA_TOOL[pedida.function.name] ?? pedida.function.name}: ${registro.status === 'OK' ? 'listo' : 'error'}`,
+          data: {
+            tool: registro.toolName,
+            sequence: registro.sequence,
+            status: registro.status,
+            latency_ms: registro.latencyMs,
+          },
+        });
+
+        for (const politica of politicasRecuperadas.slice(politicasAntes)) {
+          emitir({
+            type: 'policy.found',
+            label: `Politica ${politica.id_politica} consultada`,
+            data: {
+              id_politica: politica.id_politica,
+              seccion: politica.seccion,
+              categoria: politica.categoria,
+              incluido_por_relacion: politica.incluido_por_relacion,
+            },
+          });
+        }
       }
-      throw fallaDeSalida(reparado.error, reparada, limits.maxOutputTokens);
+
+      if (iterations >= limits.maxIterations) {
+        throw new AgentLoopError(
+          'MAX_ITERATIONS_EXCEEDED',
+          `Se superaron las ${limits.maxIterations} iteraciones sin completar la evidencia`,
+          true,
+        );
+      }
     }
 
+    // ===================== FASE 2: FINALIZER =====================
+    // Function call forzada. El proveedor tiene que producir los argumentos de
+    // una firma concreta, no prosa que ademas resulte ser JSON.
+    const evidencia = [...new Set(politicasRecuperadas.map((p) => p.id_politica))];
+    const mensajesFinalizer = construirMensajesFinalizer(
+      input.solicitud,
+      input.indicadores,
+      corpus,
+      evidencia,
+    );
+
+    const ejecutarFinalizer = async (
+      fase: 'FINALIZER' | 'FINALIZER_REPAIR',
+      mensajesFase: typeof mensajesFinalizer,
+    ): Promise<ReturnType<typeof interpretarRespuestaFinalizer>> => {
+      budget.assertNotExhausted();
+      const response = await chat(
+        peticionFinalizer(mensajesFase, corpus.idsValidos, limits.maxFinalizerOutputTokens),
+        signal,
+      );
+      acumularUso(response);
+      iterations += 1;
+
+      const interpretado = interpretarRespuestaFinalizer(response);
+      const diag = registrarIteracion(
+        iterationDiagnostics,
+        iterations,
+        fase,
+        response,
+        response.message.tool_calls ?? [],
+      );
+      diag.schemaValid = interpretado.ok;
+      diag.functionName = response.message.tool_calls?.[0]?.function.name ?? null;
+      diag.argumentsLength = interpretado.argumentsLength;
+      return interpretado;
+    };
+
+    const primerIntento = await ejecutarFinalizer('FINALIZER', mensajesFinalizer);
+    if (primerIntento.ok) {
+      emitir({
+        type: 'dictamen.partial',
+        label: 'Recomendacion generada, validando',
+        data: { decision: primerIntento.candidato.decision },
+      });
+      return resultado(primerIntento.candidato);
+    }
+
+    // UNA reparacion, con la MISMA funcion forzada. Nunca se vuelve a
+    // response_format libre: eso seria un fallback silencioso a un camino que
+    // ya demostro no funcionar con este modelo.
+    repairAttempted = true;
+    const mensajesReparacion = [
+      ...mensajesFinalizer,
+      {
+        role: 'user' as const,
+        content:
+          `El intento anterior no produjo una llamada valida a ${FINALIZER_FUNCTION_NAME} ` +
+          `(${primerIntento.code}). Llama a la funcion con argumentos completos y validos. ` +
+          'Motivos muy breves, maximo 5.',
+      },
+    ];
+
+    const reparacion = await ejecutarFinalizer('FINALIZER_REPAIR', mensajesReparacion);
+    if (reparacion.ok) {
+      repairSucceeded = true;
+      emitir({
+        type: 'dictamen.partial',
+        label: 'Recomendacion generada tras reparacion, validando',
+        data: { decision: reparacion.candidato.decision },
+      });
+      return resultado(reparacion.candidato);
+    }
+
+    // Sin tercer intento.
     throw new AgentLoopError(
-      'MAX_ITERATIONS_EXCEEDED',
-      `Se superaron las ${limits.maxIterations} iteraciones sin dictamen`,
+      reparacion.code === 'FINALIZER_TRUNCATED' ? 'OUTPUT_TOKEN_LIMIT_EXCEEDED' : 'FINALIZER_FAILED',
+      `La finalizacion estructurada fallo dos veces. Primer intento: ${primerIntento.code} ` +
+        `(${primerIntento.detalle}). Reparacion: ${reparacion.code} (${reparacion.detalle}).`,
       true,
+      {
+        primer_intento: primerIntento.code,
+        reparacion: reparacion.code,
+        max_finalizer_output_tokens: limits.maxFinalizerOutputTokens,
+      },
     );
   } catch (error) {
     const failure = clasificarFallo(error);
@@ -278,23 +301,17 @@ export async function ejecutarAgentLoop(
   }
 }
 
-/**
- * Registra la metadata segura de una llamada al proveedor.
- *
- * Se toma la LONGITUD del contenido y de los argumentos, nunca su texto. Asi el
- * diagnostico responde "que consumio la salida" —muchas iteraciones, tool calls
- * con argumentos gigantes, contenido final enorme— sin guardar nada del
- * razonamiento del modelo.
- */
 function registrarIteracion(
   destino: AgentIterationDiagnostic[],
   iteration: number,
+  phase: FaseIteracion,
   response: ChatResponse,
   pedidas: NonNullable<ChatMessage['tool_calls']>,
 ): AgentIterationDiagnostic {
   const contenido = response.message.content ?? '';
   const diagnostico: AgentIterationDiagnostic = {
     iteration,
+    phase,
     finishReason: response.finishReason,
     inputTokens: response.usage.inputTokens,
     outputTokens: response.usage.outputTokens,
@@ -303,61 +320,13 @@ function registrarIteracion(
     toolCallCount: pedidas.length,
     toolNames: pedidas.map((p) => p.function.name),
     toolArgumentLengths: pedidas.map((p) => (p.function.arguments ?? '').length),
+    functionName: null,
+    argumentsLength: 0,
     hadFinalContent: contenido.trim().length > 0,
     schemaValid: false,
   };
   destino.push(diagnostico);
   return diagnostico;
-}
-
-/**
- * Traduce una salida final no valida al codigo que corresponde.
- *
- * Un `AGENT_SCHEMA_VALIDATION_FAILED` generico esconde tres problemas distintos:
- * truncacion, respuesta vacia y JSON que no cumple el esquema. Cada uno se
- * arregla en un lugar diferente, asi que cada uno lleva su propio codigo.
- */
-function fallaDeSalida(
-  errorSchema: string,
-  response: ChatResponse,
-  maxOutputTokens: number,
-): AgentLoopError {
-  const contenido = response.message.content ?? '';
-
-  if (response.finishReason === 'length') {
-    return new AgentLoopError(
-      'OUTPUT_TOKEN_LIMIT_EXCEEDED',
-      `La generacion se corto por limite de tokens (max_tokens=${maxOutputTokens}, ` +
-        `salida=${response.usage.outputTokens}, razonamiento=${response.usage.reasoningTokens})`,
-      true,
-      {
-        finish_reason: response.finishReason,
-        max_output_tokens: maxOutputTokens,
-        output_tokens: response.usage.outputTokens,
-        reasoning_tokens: response.usage.reasoningTokens,
-      },
-    );
-  }
-
-  if (contenido.trim() === '') {
-    return new AgentLoopError(
-      'EMPTY_PROVIDER_RESPONSE',
-      `El proveedor cerro con finish_reason='${response.finishReason ?? 'desconocido'}' sin devolver contenido`,
-      true,
-      {
-        finish_reason: response.finishReason,
-        output_tokens: response.usage.outputTokens,
-        reasoning_tokens: response.usage.reasoningTokens,
-      },
-    );
-  }
-
-  return new AgentLoopError(
-    'AGENT_SCHEMA_VALIDATION_FAILED',
-    `La salida del modelo sigue siendo invalida tras la reparacion: ${errorSchema}`,
-    true,
-    { errores: errorSchema, finish_reason: response.finishReason },
-  );
 }
 
 function clasificarFallo(error: unknown): AgentAnalysisResult['failure'] | null {
@@ -370,37 +339,6 @@ function clasificarFallo(error: unknown): AgentAnalysisResult['failure'] | null 
     return { code: 'PROVIDER_TIMEOUT', message: error.message };
   }
   return null;
-}
-
-type Parseo = { ok: true; value: DictamenLLM } | { ok: false; error: string };
-
-function parsearCandidato(content: string | null): Parseo {
-  if (!content || content.trim() === '') return { ok: false, error: 'respuesta vacia' };
-
-  let json: unknown;
-  try {
-    json = JSON.parse(extraerJson(content));
-  } catch {
-    return { ok: false, error: 'la respuesta no es JSON valido' };
-  }
-
-  const parsed = DictamenLLMSchema.safeParse(json);
-  if (parsed.success) return { ok: true, value: parsed.data };
-
-  return {
-    ok: false,
-    error: parsed.error.issues.map((i) => `${i.path.join('.') || '(raiz)'}: ${i.message}`).join('; '),
-  };
-}
-
-/** Tolera que el modelo envuelva el JSON en un bloque de codigo. */
-function extraerJson(texto: string): string {
-  const enBloque = /```(?:json)?\s*([\s\S]*?)```/.exec(texto);
-  if (enBloque?.[1]) return enBloque[1].trim();
-  const inicio = texto.indexOf('{');
-  const fin = texto.lastIndexOf('}');
-  if (inicio >= 0 && fin > inicio) return texto.slice(inicio, fin + 1);
-  return texto.trim();
 }
 
 async function ejecutarHerramienta(

@@ -1019,3 +1019,96 @@ Un frame SSE corrupto o un evento que no cumple `AgentEventSchema` **no** son fa
 
 ### Prioridad del error de dominio
 Un `run.failed` con código de dominio —`OUTPUT_TOKEN_LIMIT_EXCEEDED`, por ejemplo— **gana** sobre cualquier error de transporte posterior. El backend ya dijo qué falló y por qué; que después se corte el socket no cambia el diagnóstico, y pisarlo con un genérico convierte una causa concreta en ruido.
+
+---
+
+# FASE 3.3 — Riesgo autoritativo y reparación dirigida
+
+## 2026-09-08 — CASE-09: G4 no tenía bug, el dato de entrada era inventado
+
+### Investigación
+CASE-09 pide Q120,000. La regla es:
+
+```ts
+if (nivelRiesgo === 'ALTO') return true;
+if (montoRecomendado === null) return false;
+return d(montoRecomendado).gt(d('250000.00'));
+```
+
+Con cualquier monto recomendado ≤ Q120,000, el único camino a `true` es `nivel_riesgo === 'ALTO'`. No hay otra rama. Así que el modelo devolvió ALTO, y G4 hizo exactamente lo que debía con el dato que recibió.
+
+La solicitud tiene score 80. La única política del corpus que asigna un nivel de riesgo explícito es POL-3.2, y cubre la banda 60–69. El ALTO no tenía ningún respaldo: fue una invención del modelo que terminó decidiendo si hacía falta la firma de un analista.
+
+---
+
+## 2026-09-08 — `nivel_riesgo` sale del modelo y pasa al backend
+
+`calcularNivelRiesgo(solicitud, indicadores)` en `packages/contracts/src/risk.ts`: función pura, aritmética Decimal, umbrales literales del corpus, y cada condición cita la política que la sustenta. `nivel_riesgo` desaparece de `DictamenLLMSchema` y del JSON Schema que viaja al proveedor; sigue en el `Dictamen` final, que es el contrato del examen.
+
+### Un error propio que casi se va: incumplimiento ≠ riesgo ALTO
+
+La primera versión de la matriz marcaba ALTO cualquier umbral incumplido: antigüedad insuficiente, score bajo 60, endeudamiento sobre 0.70. Se probó contra la API y CASE-04 salió `RECHAZADO / ALTO / PENDING_AUTHORIZATION` — un rechazo por antigüedad exigiendo firma humana.
+
+Eso es una inferencia sin respaldo, exactamente la que este cambio buscaba eliminar. POL-1.1 es una regla de **elegibilidad**: incumplirla es causal de rechazo, no una afirmación sobre el nivel de riesgo. Y la diferencia tiene consecuencia concreta: POL-8.2 obliga a autorización humana ante riesgo ALTO, así que marcar ALTO cada rechazo haría que toda solicitud rechazada necesitara firma de un analista. El corpus no dice eso en ninguna parte.
+
+La matriz corregida distingue dos listas:
+
+- **`factores`** — elevan el nivel a ALTO. Solo dos situaciones, ambas con respaldo textual:
+  - **POL-3.2**: score entre 60 y 69. La política dice literalmente "se clasifican con nivel de riesgo ALTO".
+  - **POL-10.2 / POL-10.3**: datos inconsistentes o indicadores no calculables. No se puede afirmar riesgo bajo sobre información que no cuadra.
+- **`incumplimientos`** — umbrales violados (POL-1.1, POL-2.1 a 2.4, POL-3.1, POL-5.1, POL-1.2), con sus excepciones POL-9.1/9.2/9.3 aplicadas. Se registran para trazabilidad. Alimentan la **decisión**, no la autorización.
+
+Los diez fixtures encajan con sus expected results, y no por haber ajustado la matriz a ellos: encajan porque se quitaron las inferencias que el corpus no sustenta.
+
+### Limitación declarada: el sistema no emite BAJO
+
+El corpus vigente no contiene ninguna política que defina condiciones suficientes para afirmar riesgo BAJO. El borrador de 35 políticas tenía una POL-3.3 de "score preferente" que hacía justamente eso, pero se eliminó al recortar el corpus al rango 25–30 pedido en FASE 2.
+
+Inventar un umbral de BAJO sería el mismo error que este cambio corrige. Así que el sistema emite **MEDIO o ALTO**, con MEDIO por defecto: ante ausencia de norma, no se afirma riesgo bajo. Es la lectura conservadora.
+
+No afecta a G4 (solo ALTO lo dispara) ni a los expected results, que no fijan `nivel_riesgo`. **Alternativa, si se quiere BAJO:** restaurar una POL-3.3 equivalente al corpus, subir `POLICY_CORPUS_VERSION` y re-correr la evaluación completa. Es una decisión de producto, no técnica, y no se tomó por cuenta propia.
+
+---
+
+## 2026-09-08 — G5: el texto crudo sale del contexto decisional
+
+Antes, `destino_fondos` viajaba en un mensaje aparte serializado con `JSON.stringify`. Eso impedía que rompiera la estructura del mensaje, pero no impedía lo otro: que compitiera por la atención del modelo con las instrucciones legítimas. Escapar no es lo mismo que excluir.
+
+Ahora viaja `resumirDestinoFondos()`: una etiqueta de un vocabulario cerrado de siete valores (`capital_trabajo`, `inventario`, `maquinaria_equipo`, `unidades_transporte`, `expansion_local`, `cuentas_por_cobrar`, `no_clasificado`) más la longitud del texto y la bandera de G5. Un atacante puede, como mucho, elegir cuál de esas siete etiquetas se emite; no puede introducir texto propio en el prompt. La superficie pasa de "cualquier cadena" a "una de siete constantes que escribimos nosotros".
+
+El texto crudo sigue persistido, visible en la UI como dato no confiable, analizado por la detección de G5 y registrado como hallazgo.
+
+### POL-5.3 requiere el destino: queda declarado
+
+POL-5.3 dice: *"Las solicitudes del sector transporte destinadas a adquisición de unidades requieren garantía prendaria sobre las unidades financiadas."* Esa política **sí** depende del destino de fondos. La categoría `unidades_transporte` del vocabulario cerrado la cubre para el caso normal, pero es una aproximación por palabras clave, no el texto original. Se declara aquí en vez de resolverse con una excepción silenciosa. Si se quisiera precisión completa habría que capturar el destino como campo estructurado en el formulario de solicitud, no como texto libre — que es la solución correcta y excede esta fase.
+
+### Evidencia
+Un test toma EVAL-CASE-01 y le sustituye el destino por cada una de las 5 inyecciones del seed: indicadores, nivel de riesgo y tope autoritativo son idénticos en los 6 casos.
+
+---
+
+## 2026-09-08 — Reparación dirigida por truncación
+
+Antes, `finish_reason='length'` cortaba de inmediato. El razonamiento era correcto —un reintento con el mismo contexto se trunca igual— pero la conclusión no: se puede reintentar con **otro** contexto.
+
+Una única reparación, con condiciones distintas:
+
+- contexto construido desde cero, **sin la salida truncada anterior** (reenviar 5000 tokens rotos invita a repetirlos);
+- sin historial de herramientas y sin herramientas ofrecidas;
+- sin el texto crudo del solicitante;
+- índice compacto de políticas (id, sección, categoría) en vez de los textos completos — el modelo solo devuelve identificadores;
+- `max_tokens` propio de **1400**, no 5000: un dictamen ocupa ~250 caracteres y el techo estrecho es parte del mensaje;
+- `temperature: 0` y la misma semilla.
+
+Si la reparación vuelve a truncarse, viene vacía o no valida, se conserva el error explícito y se detiene. No hay tercer intento. `repair_attempted` queda en `true` y se registra una segunda fila en `agent_iterations`.
+
+`max_tokens` normal sigue en 5000: no se subió para tapar el problema.
+
+### Evidencia
+Contra la API con un proveedor que trunca la primera respuesta, CASE-04 termina en `RECHAZADO / MEDIO / GENERATED` con dos iteraciones persistidas:
+
+```
+ iteration | finish_reason | output_tokens | reasoning_tokens | schema_valid
+         1 | length        |          5000 |              116 | f
+         2 | stop          |           120 |                0 | t
+```

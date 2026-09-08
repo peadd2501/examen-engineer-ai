@@ -62,7 +62,13 @@ const ERRORES: Record<string, string> = {
   TOTAL_TIMEOUT: 'El análisis excedió el tiempo máximo permitido.',
   CANCELLED: 'Análisis cancelado.',
   PROVIDER_NOT_CONFIGURED: 'El proveedor de IA no está configurado. Revisa OPENROUTER_API_KEY en el archivo .env.',
-  API_UNREACHABLE: 'No se pudo contactar la API.',
+  // Transporte. Cada causa por separado: un CORS mal configurado y una API
+  // apagada se ven igual desde fetch, pero se arreglan en lugares distintos.
+  API_UNREACHABLE: 'No se pudo establecer la conexión con la API.',
+  HTTP_ERROR: 'La API respondió con un error.',
+  STREAM_SIN_CUERPO: 'La API respondió sin cuerpo de streaming.',
+  STREAM_INTERRUMPIDO: 'La conexión con el análisis se interrumpió.',
+  RUN_FAILED: 'El análisis no pudo completarse.',
   GUARDRAIL_G1: 'El dictamen se detuvo: las citas de política no pudieron verificarse contra el corpus.',
   GUARDRAIL_G2: 'El dictamen se detuvo: los indicadores propuestos no coinciden con el cálculo autoritativo.',
   GUARDRAIL_G3: 'El dictamen se detuvo: el monto recomendado excede un tope de política.',

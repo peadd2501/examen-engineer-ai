@@ -10,7 +10,7 @@ import { MetricsPanel } from './components/MetricsPanel.js';
 import { Badge } from './components/StatusBadge.js';
 import { useAnalysisStream } from './hooks/useAnalysisStream.js';
 import { useApplications } from './hooks/useApplications.js';
-import { api, type VersionInfo } from './services/api.js';
+import { api, type RunDetalle, type VersionInfo } from './services/api.js';
 import type { AnalisisResultado } from './types/view.js';
 
 type Tab = 'analisis' | 'metricas';
@@ -25,11 +25,28 @@ export function App() {
   const [dbArriba, setDbArriba] = useState<boolean | null>(null);
   const [tab, setTab] = useState<Tab>('analisis');
   const [refrescoMetricas, setRefrescoMetricas] = useState(0);
+  const [runDetalle, setRunDetalle] = useState<RunDetalle | null>(null);
 
   useEffect(() => {
     api.version().then(setVersion).catch(() => setVersion(null));
     api.health().then((h) => setDbArriba(h.database === 'up')).catch(() => setDbArriba(false));
   }, []);
+
+  // La metadata de ejecucion vive en el agent_run, no en el dictamen. Cuando hay
+  // un run asociado se lee de la API; si no existe, la UI muestra N/D en vez de
+  // rellenar con ceros.
+  const runId = analisis.resultado?.runId ?? null;
+  useEffect(() => {
+    if (!runId) {
+      setRunDetalle(null);
+      return;
+    }
+    let cancelado = false;
+    api.run(runId)
+      .then((r) => { if (!cancelado) setRunDetalle(r); })
+      .catch(() => { if (!cancelado) setRunDetalle(null); });
+    return () => { cancelado = true; };
+  }, [runId]);
 
   // Al cambiar de solicitud se cargan sus indicadores y su último dictamen, si existe.
   const seleccionar = useCallback(async (s: Solicitud) => {
@@ -162,7 +179,9 @@ export function App() {
               onAutorizar={autorizar}
               onReintentar={() => seleccionada && void analisis.analizar(seleccionada.id_solicitud)}
             />
-            {analisis.resultado && <ExecutionDetails resultado={analisis.resultado} version={version} />}
+            {analisis.resultado && (
+              <ExecutionDetails resultado={analisis.resultado} version={version} runDetalle={runDetalle} />
+            )}
           </div>
         </main>
       )}
@@ -173,6 +192,7 @@ export function App() {
 interface DictamenPersistido {
   id?: string;
   application_id?: string;
+  agent_run_id?: string | null;
   decision?: string;
   recommended_amount?: string | null;
   recommended_term_months?: number | null;
@@ -190,14 +210,14 @@ interface DictamenPersistido {
  * Reconstruye la vista a partir del último dictamen persistido, para que al
  * volver a una solicitud ya analizada no se pierda el resultado.
  *
- * Es lectura de la DB real vía endpoint, no un resultado inventado: los campos
- * de ejecución (tokens, iteraciones) quedan vacíos porque pertenecen al run,
- * no al dictamen.
+ * Los campos de ejecución quedan en `null`, no en cero: pertenecen al
+ * `agent_run` y se recuperan aparte con `GET /api/runs/:id` usando el
+ * `agent_run_id` de esta fila. Si ese run no existe, la UI muestra N/D.
  */
 function reconstruirDesdeDictamen(fila: Record<string, unknown>): AnalisisResultado {
   const d = fila as DictamenPersistido;
   return {
-    runId: '',
+    runId: d.agent_run_id ?? null,
     confirmacion: {
       id_dictamen: d.id ?? '',
       id_solicitud: d.application_id ?? '',
@@ -221,9 +241,10 @@ function reconstruirDesdeDictamen(fila: Record<string, unknown>): AnalisisResult
     },
     politicasRecuperadas: [],
     findings: [],
-    usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, estimatedCost: '0.000000', costReportedByProvider: false },
-    latencyMs: 0,
-    toolSequence: [],
+    // null, no cero: esta metadata es del run y todavia no se conoce.
+    usage: null,
+    latencyMs: null,
+    toolSequence: null,
     resolvedModel: null,
     lastFinishReason: null,
     iterationDiagnostics: [],

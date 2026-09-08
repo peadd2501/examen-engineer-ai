@@ -5,6 +5,7 @@ import { analizarSolicitud } from '../application/analyze-application.js';
 import { buildAgentProvider } from '../agents/index.js';
 import { pool } from '../infrastructure/db.js';
 import { DEFAULT_AGENT_LIMITS } from '../agents/agent-limits.js';
+import { config } from '../config.js';
 import { AgentEventSchema, type AgentEvent } from '@credit/contracts';
 import { statusForError, toErrorBody } from '../infrastructure/error-mapper.js';
 
@@ -45,6 +46,19 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
 }
 
 /**
+ * Origen permitido para esta peticion, segun CORS_ORIGIN.
+ *
+ * Se resuelve contra la lista configurada y se devuelve el origen EXACTO que
+ * mando el navegador. Nunca '*': ademas de ser mala practica, seria incompatible
+ * con credenciales si mas adelante se agregan.
+ */
+function origenPermitido(origen: string | undefined): string | null {
+  if (!origen) return null;
+  const permitidos = config.CORS_ORIGIN.split(',').map((o) => o.trim());
+  return permitidos.includes(origen) ? origen : null;
+}
+
+/**
  * Streaming del analisis por SSE.
  *
  * Es POST porque inicia una ejecucion con efectos, asi que el frontend lo
@@ -64,14 +78,30 @@ export async function agentStreamRoutes(app: FastifyInstance): Promise<void> {
     // Se toma control del socket: a partir de aqui Fastify no intenta enviar su
     // propia respuesta. Sin esto el stream escribe bien pero nunca cierra,
     // porque Fastify sigue esperando serializar un payload.
+    //
+    // El precio de hijack() es que TODOS los headers que @fastify/cors habia
+    // preparado con reply.header() se pierden: esos viven en el objeto reply de
+    // Fastify y se vuelcan al socket al enviar, cosa que ya no ocurre. El
+    // preflight OPTIONS seguia respondiendo 204 correctamente porque lo maneja
+    // el plugin antes de llegar aqui, asi que el problema era invisible desde
+    // el lado del servidor: el navegador recibia los eventos y los descartaba
+    // por falta de Access-Control-Allow-Origin.
+    //
+    // Por eso los headers CORS se escriben explicitamente sobre reply.raw.
     reply.hijack();
+
+    const origen = origenPermitido(request.headers.origin);
 
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
+      // La respuesta depende del Origin, asi que no puede cachearse compartida.
+      Vary: 'Origin',
+      ...(origen === null ? {} : { 'Access-Control-Allow-Origin': origen }),
     });
+    reply.raw.flushHeaders();
 
     let sequence = 0;
     let cerrado = false;

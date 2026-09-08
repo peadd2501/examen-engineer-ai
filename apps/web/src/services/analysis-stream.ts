@@ -10,10 +10,39 @@ const BASE_URL: string = import.meta.env['VITE_API_URL'] ?? 'http://localhost:30
  * navegador: al abortar se cierra la conexion, el backend recibe 'close' y
  * propaga el signal hasta la llamada al proveedor.
  */
+
+/**
+ * Causas de fallo del TRANSPORTE, distinguidas una por una.
+ *
+ * `API_UNREACHABLE` queda reservado exclusivamente para un fetch que ni
+ * siquiera llego a producir respuesta: red caida, DNS, TLS o CORS bloqueando la
+ * respuesta. Todo lo demas tiene su propio codigo. Colapsarlo todo en
+ * "API inalcanzable" fue lo que hizo invisible un problema de CORS durante una
+ * sesion entera: el servidor estaba respondiendo perfectamente.
+ */
+export type StreamErrorCode =
+  | 'API_UNREACHABLE'
+  | 'HTTP_ERROR'
+  | 'STREAM_SIN_CUERPO'
+  | 'STREAM_INTERRUMPIDO';
+
+export interface StreamError {
+  code: StreamErrorCode;
+  mensaje: string;
+  detalle?: string;
+}
+
+export interface StreamDiagnostico {
+  framesRecibidos: number;
+  framesInvalidos: number;
+  eventosInvalidos: number;
+}
+
 export interface StreamHandlers {
   onEvent: (evento: AgentEvent) => void;
-  onError: (error: { code: string; mensaje: string }) => void;
-  onDone: () => void;
+  /** Fallo de transporte. Los errores de dominio llegan como evento run.failed. */
+  onError: (error: StreamError) => void;
+  onDone: (diagnostico: StreamDiagnostico) => void;
 }
 
 export async function analizarConStream(
@@ -21,6 +50,8 @@ export async function analizarConStream(
   handlers: StreamHandlers,
   signal: AbortSignal,
 ): Promise<void> {
+  const diagnostico: StreamDiagnostico = { framesRecibidos: 0, framesInvalidos: 0, eventosInvalidos: 0 };
+
   let response: Response;
   try {
     response = await fetch(`${BASE_URL}/api/applications/${idSolicitud}/analyze/stream`, {
@@ -30,16 +61,47 @@ export async function analizarConStream(
       signal,
     });
   } catch (error) {
-    if (signal.aborted) return;
+    // Abortar es una accion del usuario, no un fallo.
+    if (signal.aborted) {
+      handlers.onDone(diagnostico);
+      return;
+    }
+    // Unico caso legitimo de API_UNREACHABLE: no hubo respuesta.
     handlers.onError({
       code: 'API_UNREACHABLE',
-      mensaje: `No se pudo contactar la API en ${BASE_URL}. Verifica que este corriendo.`,
+      mensaje: `No se pudo establecer la conexion con la API en ${BASE_URL}.`,
+      detalle:
+        'La peticion no produjo respuesta. Puede ser que la API no este corriendo, o que el ' +
+        'navegador haya bloqueado la respuesta por CORS. Revisa la consola del navegador: si el ' +
+        'servidor registro la peticion, el problema es CORS y no conectividad.',
     });
+    handlers.onDone(diagnostico);
     return;
   }
 
-  if (!response.ok || !response.body) {
-    handlers.onError({ code: `HTTP_${response.status}`, mensaje: `La API respondio ${response.status}.` });
+  if (!response.ok) {
+    let detalle: string | undefined;
+    try {
+      const cuerpo = (await response.json()) as { error?: { code?: string; message?: string } };
+      detalle = cuerpo.error ? `${cuerpo.error.code ?? ''} ${cuerpo.error.message ?? ''}`.trim() : undefined;
+    } catch {
+      detalle = undefined;
+    }
+    handlers.onError({
+      code: 'HTTP_ERROR',
+      mensaje: `La API respondio ${response.status}.`,
+      ...(detalle ? { detalle } : {}),
+    });
+    handlers.onDone(diagnostico);
+    return;
+  }
+
+  if (!response.body) {
+    handlers.onError({
+      code: 'STREAM_SIN_CUERPO',
+      mensaje: 'La API respondio correctamente pero sin cuerpo de streaming.',
+    });
+    handlers.onDone(diagnostico);
     return;
   }
 
@@ -58,32 +120,56 @@ export async function analizarConStream(
       while (corte !== -1) {
         const bloque = buffer.slice(0, corte);
         buffer = buffer.slice(corte + 2);
-        procesarBloque(bloque, handlers);
+        procesarBloque(bloque, handlers, diagnostico);
         corte = buffer.indexOf('\n\n');
       }
     }
   } catch (error) {
-    // Abortar es una accion del usuario, no un error.
     if (!signal.aborted) {
-      handlers.onError({ code: 'STREAM_INTERRUMPIDO', mensaje: 'La conexion con el analisis se interrumpio.' });
+      // El stream se corto a mitad. NO es API_UNREACHABLE: la conexion existio
+      // y hubo respuesta; lo que fallo fue la lectura.
+      handlers.onError({
+        code: 'STREAM_INTERRUMPIDO',
+        mensaje: 'La conexion con el analisis se interrumpio mientras se recibian eventos.',
+        detalle: `${diagnostico.framesRecibidos} eventos recibidos antes del corte.`,
+      });
     }
   } finally {
-    handlers.onDone();
+    handlers.onDone(diagnostico);
   }
 }
 
-function procesarBloque(bloque: string, handlers: StreamHandlers): void {
+/**
+ * Un frame corrupto o un evento que no cumple el contrato se cuentan y se
+ * descartan, pero no tumban el stream ni se reportan como fallo de transporte:
+ * el resto de los eventos sigue siendo util.
+ */
+function procesarBloque(bloque: string, handlers: StreamHandlers, diagnostico: StreamDiagnostico): void {
   const datos = bloque
     .split('\n')
     .filter((l) => l.startsWith('data:'))
     .map((l) => l.slice(5).trim())
     .join('');
-  if (datos === '') return;
 
-  try {
-    const parsed = AgentEventSchema.safeParse(JSON.parse(datos));
-    if (parsed.success) handlers.onEvent(parsed.data);
-  } catch {
-    // Un bloque corrupto no debe tumbar el stream.
+  if (datos === '') {
+    diagnostico.framesInvalidos += 1;
+    return;
   }
+
+  let json: unknown;
+  try {
+    json = JSON.parse(datos);
+  } catch {
+    diagnostico.framesInvalidos += 1;
+    return;
+  }
+
+  const parsed = AgentEventSchema.safeParse(json);
+  if (!parsed.success) {
+    diagnostico.eventosInvalidos += 1;
+    return;
+  }
+
+  diagnostico.framesRecibidos += 1;
+  handlers.onEvent(parsed.data);
 }

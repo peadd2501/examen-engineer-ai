@@ -225,3 +225,154 @@ test('las inconsistencias de datos se muestran como badge', () => {
   assert.ok(html.includes('Datos inconsistentes'));
   assert.ok(html.includes('Los pasivos totales exceden los activos totales'));
 });
+
+// --- observabilidad: N/D en vez de ceros inventados --------------------------
+
+import { ExecutionDetails } from './ExecutionDetails.js';
+import type { RunDetalle } from '../services/api.js';
+
+/** Dictamen restaurado desde la base: sin metadata de ejecución todavía. */
+function restaurado(runId: string | null): AnalisisResultado {
+  return {
+    ...resultado(),
+    runId,
+    usage: null,
+    latencyMs: null,
+    toolSequence: null,
+    resolvedModel: null,
+    lastFinishReason: null,
+    iterationDiagnostics: [],
+    findings: [],
+  };
+}
+
+const VERSION = {
+  prompt_version: 'v2',
+  policy_corpus_version: '1.0',
+  indicator_calc_version: 1,
+  config: { model: 'nvidia/nemotron-3-super-120b-a12b:free' },
+};
+
+const RUN: RunDetalle = {
+  run: {
+    id: 'cccccccc-3333-4333-8333-333333333333',
+    session_id: 'web-1788850000000',
+    configured_model: 'nvidia/nemotron-3-super-120b-a12b:free',
+    resolved_model: 'nvidia/nemotron-3-super-120b-a12b',
+    prompt_version: 'v2',
+    policy_corpus_version: '1.0',
+    indicator_calc_version: 1,
+    inference_seed: 20260907,
+    input_tokens: 4353,
+    output_tokens: 412,
+    reasoning_tokens: 0,
+    latency_ms: 8134,
+    estimated_cost: '0.000000',
+    last_finish_reason: 'stop',
+    status: 'COMPLETED',
+  },
+  iteraciones: [{
+    iteration: 1, finish_reason: 'stop', input_tokens: 4353, output_tokens: 412,
+    reasoning_tokens: 0, content_length_chars: 237, tool_call_count: 0,
+    tool_names: [], tool_argument_lengths: [], had_final_content: true, schema_valid: true,
+  }],
+  tool_calls: [{ sequence: 1, tool_name: 'buscar_politica', status: 'OK', latency_ms: 6 }],
+  hallazgos: [],
+};
+
+test('un dictamen restaurado sin run muestra N/D, nunca ceros', () => {
+  const html = renderToStaticMarkup(
+    <ExecutionDetails resultado={restaurado(null)} version={VERSION} runDetalle={null} />,
+  );
+  assert.ok(html.includes('N/D'));
+  assert.ok(html.includes('no tiene un run asociado disponible'));
+
+  // Ninguna métrica de ejecución puede aparecer como 0 de relleno.
+  for (const inventado of ['>0<', '0 ms', '0.000000']) {
+    assert.ok(!html.includes(inventado), `no debe mostrarse ${inventado} inventado`);
+  }
+});
+
+test('con el run recuperado se muestran los valores reales', () => {
+  const html = renderToStaticMarkup(
+    <ExecutionDetails resultado={restaurado(RUN.run['id'] as string)} version={VERSION} runDetalle={RUN} />,
+  );
+  assert.ok(html.includes('4353'), 'tokens de entrada reales');
+  assert.ok(html.includes('412'), 'tokens de salida reales');
+  assert.ok(html.includes('8134 ms'), 'latencia real');
+  assert.ok(html.includes('20260907'), 'semilla registrada');
+  assert.ok(html.includes('nvidia/nemotron-3-super-120b-a12b'), 'modelo resuelto');
+  assert.ok(html.includes('stop'), 'finish_reason');
+  assert.ok(!html.includes('no tiene un run asociado'), 'ya hay datos de run');
+});
+
+test('el run recuperado tambien aporta iteraciones y secuencia de tools', () => {
+  const html = renderToStaticMarkup(
+    <ExecutionDetails resultado={restaurado(RUN.run['id'] as string)} version={VERSION} runDetalle={RUN} />,
+  );
+  assert.ok(html.includes('1:buscar_politica:OK'));
+  assert.ok(html.includes('4353/412/0'), 'fila de iteración con tokens reales');
+});
+
+test('un run parcial deja en N/D solo lo que falta', () => {
+  const parcial: RunDetalle = {
+    run: { id: RUN.run['id'], input_tokens: 100, output_tokens: 20 },
+    iteraciones: [], tool_calls: [], hallazgos: [],
+  };
+  const html = renderToStaticMarkup(
+    <ExecutionDetails resultado={restaurado(RUN.run['id'] as string)} version={VERSION} runDetalle={parcial} />,
+  );
+  assert.ok(html.includes('100'), 'lo que sí existe se muestra');
+  assert.ok(html.includes('N/D'), 'lo que falta queda como N/D');
+});
+
+test('un analisis en vivo usa su propia metadata, no la del run', () => {
+  const vivo: AnalisisResultado = {
+    ...resultado(),
+    runId: RUN.run['id'] as string,
+    usage: { inputTokens: 999, outputTokens: 111, reasoningTokens: 5, estimatedCost: '0.000123', costReportedByProvider: true },
+    latencyMs: 4321,
+    toolSequence: ['1:obtener_solicitud:OK'],
+    iterationDiagnostics: [{
+      iteration: 1, finishReason: 'stop', inputTokens: 999, outputTokens: 111, reasoningTokens: 5,
+      contentLengthChars: 200, toolCallCount: 1, toolNames: ['obtener_solicitud'],
+      toolArgumentLengths: [55], hadFinalContent: true, schemaValid: true,
+    }],
+  };
+  const html = renderToStaticMarkup(<ExecutionDetails resultado={vivo} version={VERSION} runDetalle={RUN} />);
+  assert.ok(html.includes('999'), 'gana lo medido en vivo');
+  assert.ok(html.includes('4321 ms'));
+  assert.ok(html.includes('1:obtener_solicitud:OK'), 'la secuencia en vivo, no la del run');
+  assert.ok(!html.includes('4353'), 'no se mezcla con el run persistido');
+  assert.ok(!html.includes('buscar_politica'), 'tampoco la secuencia persistida');
+});
+
+// --- clasificacion de errores: dominio vs transporte -------------------------
+
+test('un error de dominio conserva su codigo en la UI', () => {
+  const html = render(resultado(), 'error', {
+    code: 'OUTPUT_TOKEN_LIMIT_EXCEEDED',
+    mensaje: 'La generacion no pudo completarse',
+    detalle: 'finish_reason=length, salida=5000',
+  });
+  assert.ok(html.includes('La generación no pudo completarse dentro del límite configurado.'));
+  assert.ok(html.includes('OUTPUT_TOKEN_LIMIT_EXCEEDED'), 'el código de dominio queda visible');
+  assert.ok(html.includes('finish_reason=length'), 'el detalle técnico se conserva');
+});
+
+test('cada causa de transporte tiene su propio mensaje', () => {
+  for (const [code, fragmento] of [
+    ['API_UNREACHABLE', 'No se pudo establecer la conexión'],
+    ['HTTP_ERROR', 'La API respondió con un error'],
+    ['STREAM_SIN_CUERPO', 'sin cuerpo de streaming'],
+    ['STREAM_INTERRUMPIDO', 'se interrumpió'],
+  ] as const) {
+    const html = render(null, 'error', { code, mensaje: 'x' });
+    assert.ok(html.includes(fragmento), `falta el mensaje de ${code}`);
+  }
+});
+
+test('un fallo de dominio no se confunde con API inalcanzable', () => {
+  const html = render(resultado(), 'error', { code: 'OUTPUT_TOKEN_LIMIT_EXCEEDED', mensaje: 'x' });
+  assert.ok(!html.includes('No se pudo establecer la conexión'), 'no debe degradarse a error de red');
+});

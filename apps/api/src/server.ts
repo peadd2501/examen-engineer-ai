@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { config, safeConfigSnapshot } from './config.js';
@@ -67,4 +68,9 @@ async function start(): Promise<void> {
   }
 }
 
-start();
+// Solo arranca cuando este archivo es el punto de entrada. Asi los tests
+// pueden importar buildServer() e inyectar peticiones sin abrir un puerto.
+const entrada = process.argv[1];
+if (entrada !== undefined && import.meta.url === pathToFileURL(entrada).href) {
+  void start();
+}

@@ -21,22 +21,33 @@ export interface CitaPolitica {
 /** Fila del listado. Es lo que devuelve GET /api/applications. */
 export type SolicitudResumen = Solicitud;
 
-/** Resultado del analisis, tal como lo devuelve el backend. */
+export interface AnalisisUsage {
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  estimatedCost: string;
+  costReportedByProvider: boolean;
+}
+
+/**
+ * Resultado del analisis.
+ *
+ * Los campos de ejecucion son nullables a proposito: cuando se restaura un
+ * dictamen persistido, esa metadata pertenece al `agent_run`, no al dictamen.
+ * Si el run no esta disponible se muestra N/D. Nunca se rellena con ceros,
+ * porque un 0 inventado es indistinguible de un 0 medido.
+ */
 export interface AnalisisResultado {
-  runId: string;
+  /** null cuando el dictamen se restauro y no tiene run asociado. */
+  runId: string | null;
   confirmacion: Confirmacion | null;
   dictamen: (Dictamen & { politicas_citadas: CitaPolitica[] }) | null;
   politicasRecuperadas: Array<{ id_politica: string; seccion: string; categoria: string; incluido_por_relacion: boolean }>;
   findings: Array<{ guardrail: string; code: string; message: string; details?: unknown }>;
-  usage: {
-    inputTokens: number;
-    outputTokens: number;
-    reasoningTokens: number;
-    estimatedCost: string;
-    costReportedByProvider: boolean;
-  };
-  latencyMs: number;
-  toolSequence: string[];
+  usage: AnalisisUsage | null;
+  latencyMs: number | null;
+  /** null = no se conoce la secuencia; [] = se conoce y estuvo vacia. */
+  toolSequence: string[] | null;
   resolvedModel: string | null;
   lastFinishReason: string | null;
   iterationDiagnostics: Array<{

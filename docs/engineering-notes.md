@@ -933,3 +933,89 @@ Las citas se toman de `dictamen.politicas_citadas` (id, sección, texto literal)
 Se usa `renderToStaticMarkup` de `react-dom/server` con `node:test`: react-dom ya era dependencia, así que no se agregó ni vitest ni testing-library. 15 tests sobre lo que el analista ve.
 
 Detalle de tooling: `tsx` no hereda el `jsx: react-jsx` del tsconfig de la raíz al correr un glob de otra app, así que `test:web` le pasa `--tsconfig apps/web/tsconfig.json` explícitamente.
+
+---
+
+## 2026-09-08 — La observabilidad restaurada no se rellena con ceros
+
+### Problema
+`reconstruirDesdeDictamen` completaba tokens, latencia y costo con `0` al restaurar un dictamen persistido. Un cero de relleno es indistinguible de un cero medido: la tabla de "Detalles de ejecución" existe precisamente para poder confiar en lo que dice, y estaba mintiendo.
+
+### Decisión
+Los campos de ejecución del tipo de vista pasan a ser nullables (`usage: AnalisisUsage | null`, `latencyMs: number | null`, `toolSequence: string[] | null`, `runId: string | null`). Al restaurar quedan en `null`, no en cero.
+
+La metadata real se recupera aparte: la fila de `decisions` ya trae `agent_run_id`, así que la app pide `GET /api/runs/:id` y `ExecutionDetails` resuelve cada campo en tres pasos — lo medido en vivo, si no lo persistido en el run, si no **N/D**.
+
+La distinción `null` vs `[]` en `toolSequence` importa: `null` es "no se conoce la secuencia", `[]` es "se conoce y estuvo vacía".
+
+### Motivo
+Es la misma regla que ya rige los indicadores financieros: `null` significa "no disponible" y nunca se muestra como `0`. Aplicarla en la observabilidad es coherencia, no una excepción.
+
+### Evidencia
+5 tests nuevos: un dictamen restaurado sin run muestra N/D y ninguna métrica aparece como `0`, `0 ms` ni `0.000000`; con el run recuperado aparecen los valores reales (4353 tokens, 8134 ms, semilla 20260907); un run parcial deja en N/D solo lo que falta; y un análisis en vivo usa su propia metadata sin mezclarla con la persistida.
+
+Verificado contra la API corriendo: tras analizar CASE-01, `GET /api/applications/:id/decision` devuelve `agent_run_id`, y `GET /api/runs/:id` entrega `input_tokens=4353`, `output_tokens=412`, `inference_seed=20260907`, `last_finish_reason=stop`, `status=COMPLETED`.
+
+---
+
+## 2026-09-08 — `reply.hijack()` descarta los headers de CORS
+
+### Síntoma
+El navegador mostraba `API_UNREACHABLE` de inmediato mientras el servidor seguía procesando el análisis durante ~96 segundos. `curl` al mismo endpoint funcionaba perfecto: HTTP 200, `text/event-stream`, los eventos llegaban. El preflight `OPTIONS` respondía 204 con `Access-Control-Allow-Origin` correcto. Firefox DevTools mostraba los eventos llegando y, al lado, **CORS Missing Allow Origin**.
+
+### Causa raíz
+`@fastify/cors` pone sus headers con `reply.header()`, que los guarda en el objeto `reply` de Fastify para volcarlos al socket **en el momento de enviar**. La ruta SSE llama `reply.hijack()` y escribe directamente con `reply.raw.writeHead()`: ese momento de enviar nunca ocurre, así que los headers de CORS se pierden.
+
+Lo que hizo el diagnóstico difícil es que el problema era **invisible desde el servidor**:
+
+- el preflight `OPTIONS` lo maneja el plugin antes de llegar al handler, así que seguía correcto;
+- `curl` no aplica la política de mismo origen, así que veía todo bien;
+- los logs mostraban la petición entrando y ejecutándose normalmente.
+
+Un `OPTIONS` 204 no prueba CORS. Solo prueba el preflight.
+
+### Fix
+Los headers CORS se escriben explícitamente sobre `reply.raw` en el `writeHead`, resolviendo el origen contra `CORS_ORIGIN` — nunca `'*'` hardcodeado — y añadiendo `Vary: Origin` porque la respuesta depende del origen y no puede cachearse compartida. Se conserva `flushHeaders()` para que el navegador reciba las cabeceras antes del primer evento.
+
+### Los dos POST separados 1.5 s
+Consecuencia del mismo bug, no un problema aparte. El `fetch` se rechazaba de inmediato por CORS → `estado = 'error'` → botón habilitado otra vez → segundo click. Mientras tanto el servidor seguía ejecutando el primer análisis durante 96 s. Con CORS arreglado el ciclo desaparece, pero el cerrojo se endureció igual: `enCursoRef` es un ref que se toma **antes de cualquier `await`**, así que no depende de que React haya propagado el estado. El servidor cobra por cada análisis; un click debe producir exactamente uno.
+
+### Evidencia
+6 tests de integración que inyectan `Origin: http://localhost:5173` y verifican la respuesta **real**, no el preflight: status 200, `content-type: text/event-stream; charset=utf-8`, `access-control-allow-origin: http://localhost:5173`, `vary: Origin`, y que los headers de streaming siguen ahí. Un origen no autorizado no recibe el header, y ninguno recibe `*`.
+
+Verificado además sobre un socket real:
+```
+HTTP/1.1 200 OK
+Content-Type: text/event-stream; charset=utf-8
+Cache-Control: no-cache, no-transform
+Connection: keep-alive
+X-Accel-Buffering: no
+Vary: Origin
+Access-Control-Allow-Origin: http://localhost:5173
+```
+
+Para poder inyectar peticiones, `server.ts` ahora solo arranca cuando es el punto de entrada del proceso (`import.meta.url === pathToFileURL(process.argv[1]).href`); importarlo desde un test ya no abre un puerto.
+
+---
+
+## 2026-09-08 — `API_UNREACHABLE` era un cajón de sastre
+
+### Problema
+El cliente SSE mapeaba cualquier fallo a `API_UNREACHABLE`. Eso hizo invisible un problema de CORS durante toda una sesión: el servidor estaba respondiendo perfectamente y la UI decía "no se pudo contactar la API".
+
+### Decisión
+Cuatro causas de transporte, cada una con su código:
+
+| código | cuándo |
+|---|---|
+| `API_UNREACHABLE` | el `fetch` no produjo respuesta — red, DNS, TLS o CORS bloqueando |
+| `HTTP_ERROR` | hubo respuesta, con status no-2xx |
+| `STREAM_SIN_CUERPO` | 200 sin `response.body` |
+| `STREAM_INTERRUMPIDO` | la lectura del `ReadableStream` se cortó a mitad |
+
+Un frame SSE corrupto o un evento que no cumple `AgentEventSchema` **no** son fallos de transporte: se cuentan en un diagnóstico (`framesRecibidos`, `framesInvalidos`, `eventosInvalidos`) y se descartan sin tumbar el stream.
+
+`API_UNREACHABLE` conserva un detalle accionable: *"si el servidor registró la petición, el problema es CORS y no conectividad"*. Es exactamente la pista que faltaba.
+
+### Prioridad del error de dominio
+Un `run.failed` con código de dominio —`OUTPUT_TOKEN_LIMIT_EXCEEDED`, por ejemplo— **gana** sobre cualquier error de transporte posterior. El backend ya dijo qué falló y por qué; que después se corte el socket no cambia el diagnóstico, y pisarlo con un genérico convierte una causa concreta en ruido.

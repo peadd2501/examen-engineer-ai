@@ -9,4 +9,4 @@ export {
   cuotaAnualEstimada,
   detectarAnomalias,
 } from '@credit/contracts';
-export * from './risk.js';
+export * from './guardrails/index.js';

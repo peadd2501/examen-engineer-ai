@@ -19,8 +19,20 @@ interface ErrorBody {
 }
 
 /** Un unico punto de traduccion error de dominio -> status HTTP. */
+/** Detecta errores que exponen su codigo sin obligar a importar su clase. */
+function codigoDe(error: unknown): string | null {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+    return typeof code === 'string' ? code : null;
+  }
+  return null;
+}
+
 export function statusForError(error: unknown): number {
   if (error instanceof ZodError) return 400;
+  // El proveedor sin configurar es un problema de despliegue, no un bug: la UI
+  // tiene que poder decirle al analista que revise OPENROUTER_API_KEY.
+  if (codigoDe(error) === 'PROVIDER_NOT_CONFIGURED') return 503;
   if (error instanceof ApplicationNotFoundError) return 404;
   if (error instanceof PolicyNotFoundError) return 404;
   if (error instanceof IdempotencyConflictError) return 409;
@@ -42,6 +54,14 @@ export function toErrorBody(error: unknown): ErrorBody {
         code: 'VALIDATION_ERROR',
         message: 'Entrada invalida',
         details: error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+      },
+    };
+  }
+  if (codigoDe(error) === 'PROVIDER_NOT_CONFIGURED') {
+    return {
+      error: {
+        code: 'PROVIDER_NOT_CONFIGURED',
+        message: error instanceof Error ? error.message : 'Proveedor de IA no configurado',
       },
     };
   }

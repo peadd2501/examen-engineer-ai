@@ -16,9 +16,13 @@
     "eval": "tsx evaluation/run.ts",
     "typecheck": "tsc -b tsconfig.build.json && tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
     "build": "pnpm -r --if-present build",
-    "test": "tsx --test packages/contracts/src/*.test.ts database/*.test.ts",
-    "test:db": "tsx --test apps/api/src/**/*.test.ts",
-    "test:all": "pnpm test && pnpm test:db"
+    "test": "tsx --test \"packages/contracts/src/*.test.ts\" \"database/*.test.ts\" \"evaluation/*.test.ts\"",
+    "test:db": "tsx --test $(find apps/api/src -type f -name '*.test.ts')",
+    "test:all": "pnpm test && pnpm test:web && pnpm test:db",
+    "agent:smoke": "tsx evaluation/smoke.ts",
+    "pipeline:check": "tsx evaluation/pipeline-check.ts",
+    "test:web": "tsx --tsconfig apps/web/tsconfig.json --test \"apps/web/src/**/*.test.tsx\"",
+    "build:web": "pnpm --filter @credit/web build"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
@@ -31,7 +35,8 @@
     "@credit/contracts": "workspace:*",
     "@credit/policies": "workspace:*",
     "dotenv": "^16.4.7",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "zod": "^3.24.1"
   },
   "packageManager": "pnpm@10.15.0"
 }

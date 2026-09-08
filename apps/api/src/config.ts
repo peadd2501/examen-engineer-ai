@@ -1,5 +1,17 @@
-import 'dotenv/config';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { config as cargarEnv } from 'dotenv';
 import { z } from 'zod';
+
+/**
+ * `pnpm dev` arranca la API con cwd en apps/api, asi que `dotenv/config` a
+ * secas no encuentra el .env del monorepo. Se cargan los dos: primero el del
+ * directorio actual (si existe) y despues el de la raiz. dotenv no sobreescribe
+ * variables ya definidas, asi que lo mas especifico gana.
+ */
+const raizMonorepo = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+cargarEnv();
+cargarEnv({ path: resolve(raizMonorepo, '.env') });
 
 const EnvSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL es obligatorio'),
@@ -13,6 +25,16 @@ const EnvSchema = z.object({
   OPENROUTER_BASE_URL: z.string().default('https://openrouter.ai/api/v1'),
   OPENROUTER_MODEL: z.string().default('openai/gpt-4o-mini'),
   AGENT_PROVIDER: z.enum(['direct', 'mastra']).default('direct'),
+  /**
+   * Esfuerzo de razonamiento que se pide al proveedor.
+   *
+   * 'none' PIDE explicitamente que no razone (se envia reasoning.effort=none).
+   * 'off'  omite el campo por completo, para modelos que no lo soportan.
+   * Son cosas distintas: la primera es una instruccion, la segunda es silencio.
+   *
+   * No se decide por modelo en codigo: es configuracion.
+   */
+  OPENROUTER_REASONING_EFFORT: z.enum(['off', 'none', 'low', 'medium', 'high']).default('none'),
 });
 
 const parsed = EnvSchema.safeParse(process.env);
@@ -31,6 +53,7 @@ export function safeConfigSnapshot() {
     log_level: config.LOG_LEVEL,
     agent_provider: config.AGENT_PROVIDER,
     model: config.OPENROUTER_MODEL,
+    reasoning_effort: config.OPENROUTER_REASONING_EFFORT,
     llm_configured: Boolean(config.OPENROUTER_API_KEY),
     seed: config.SEED,
   };

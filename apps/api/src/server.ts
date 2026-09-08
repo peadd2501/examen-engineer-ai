@@ -6,13 +6,23 @@ import { pool } from './infrastructure/db.js';
 import { healthRoutes } from './routes/health.js';
 import { applicationRoutes } from './routes/applications.js';
 import { policyRoutes } from './routes/policies.js';
+import { agentRoutes, agentStreamRoutes } from './routes/agent.js';
+import { decisionRoutes } from './routes/decisions.js';
 
 export async function buildServer() {
   const app = Fastify({
     logger: {
       level: config.LOG_LEVEL,
       // No imprimir secretos ni cabeceras de autorizacion.
-      redact: ['req.headers.authorization', 'req.headers.cookie', '*.apiKey', '*.api_key'],
+      redact: [
+        'req.headers.authorization',
+        'req.headers.cookie',
+        '*.apiKey',
+        '*.api_key',
+        // El razonamiento del modelo no se registra en logs.
+        '*.reasoning_details',
+        '*.reasoning',
+      ],
     },
   });
 
@@ -28,6 +38,9 @@ export async function buildServer() {
   await app.register(healthRoutes);
   await app.register(applicationRoutes);
   await app.register(policyRoutes);
+  await app.register(agentRoutes);
+  await app.register(agentStreamRoutes);
+  await app.register(decisionRoutes);
 
   app.addHook('onClose', async () => {
     await pool.end();

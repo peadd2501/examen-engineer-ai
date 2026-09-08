@@ -31,7 +31,10 @@ export type NivelRiesgo = z.infer<typeof NivelRiesgoSchema>;
 export const ESTADOS_OPERATIVOS = [
   'DRAFT',
   'GENERATED',
+  /** G4: hay recomendacion firme y falta la firma de un humano. */
   'PENDING_AUTHORIZATION',
+  /** El sistema no pudo recomendar; resuelve el comite. No es lo mismo que lo anterior. */
+  'PENDING_COMMITTEE',
   'CONFIRMED',
   'REJECTED_BY_ANALYST',
 ] as const;

@@ -1,63 +1,231 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import type { Indicadores, Solicitud } from '@credit/contracts';
+import { ApplicationDetail } from './components/ApplicationDetail.js';
+import { ApplicationList } from './components/ApplicationList.js';
+import { AgentActivityTimeline } from './components/AgentActivityTimeline.js';
+import { DictamenPanel } from './components/DictamenPanel.js';
+import { ExecutionDetails } from './components/ExecutionDetails.js';
+import { IndicatorPanel } from './components/IndicatorPanel.js';
+import { MetricsPanel } from './components/MetricsPanel.js';
+import { Badge } from './components/StatusBadge.js';
+import { useAnalysisStream } from './hooks/useAnalysisStream.js';
+import { useApplications } from './hooks/useApplications.js';
 import { api, type VersionInfo } from './services/api.js';
+import type { AnalisisResultado } from './types/view.js';
 
-type Estado = 'cargando' | 'ok' | 'error';
+type Tab = 'analisis' | 'metricas';
 
 export function App() {
-  const [estado, setEstado] = useState<Estado>('cargando');
+  const solicitudes = useApplications();
+  const analisis = useAnalysisStream();
+
+  const [seleccionada, setSeleccionada] = useState<Solicitud | null>(null);
+  const [indicadores, setIndicadores] = useState<Indicadores | null>(null);
   const [version, setVersion] = useState<VersionInfo | null>(null);
-  const [db, setDb] = useState<string>('desconocido');
-  const [error, setError] = useState<string | null>(null);
+  const [dbArriba, setDbArriba] = useState<boolean | null>(null);
+  const [tab, setTab] = useState<Tab>('analisis');
+  const [refrescoMetricas, setRefrescoMetricas] = useState(0);
 
   useEffect(() => {
-    let cancelado = false;
-    (async () => {
-      try {
-        const [v, health] = await Promise.all([api.version(), api.dbHealth().catch(() => ({ database: 'down' }))]);
-        if (cancelado) return;
-        setVersion(v);
-        setDb(health.database);
-        setEstado('ok');
-      } catch (e) {
-        if (cancelado) return;
-        setError(e instanceof Error ? e.message : 'error desconocido');
-        setEstado('error');
-      }
-    })();
-    return () => {
-      cancelado = true;
-    };
+    api.version().then(setVersion).catch(() => setVersion(null));
+    api.health().then((h) => setDbArriba(h.database === 'up')).catch(() => setDbArriba(false));
   }, []);
 
+  // Al cambiar de solicitud se cargan sus indicadores y su último dictamen, si existe.
+  const seleccionar = useCallback(async (s: Solicitud) => {
+    setSeleccionada(s);
+    analisis.limpiar();
+    setIndicadores(null);
+
+    try {
+      setIndicadores(await api.indicators(s.id_solicitud));
+    } catch {
+      setIndicadores(null);
+    }
+    try {
+      const previo = await api.decisionDeSolicitud(s.id_solicitud);
+      analisis.setResultado(reconstruirDesdeDictamen(previo));
+    } catch {
+      // Sin dictamen previo: es lo normal antes del primer análisis.
+    }
+  }, [analisis]);
+
+  const autorizar = useCallback(async (idDictamen: string, accion: 'CONFIRMAR' | 'RECHAZAR') => {
+    const r = await api.autorizar(idDictamen, accion);
+    analisis.setResultado((previo) =>
+      previo && previo.confirmacion
+        ? { ...previo, confirmacion: { ...previo.confirmacion, operational_status: r.operational_status as never } }
+        : previo,
+    );
+    setRefrescoMetricas((n) => n + 1);
+  }, [analisis]);
+
+  const g5 = (analisis.resultado?.findings ?? []).find((f) => f.guardrail === 'G5');
+  const patronesG5 = ((g5?.details as { patrones?: string[] } | undefined)?.patrones) ?? [];
+
+  const corriendo = analisis.estado === 'corriendo';
+
   return (
-    <main className="shell">
-      <header>
-        <h1>AI Credit Originator</h1>
-        <p className="sub">Asistente de originacion crediticia PyME — FASE 1 (dominio determinista)</p>
+    <div className="app">
+      <header className="topbar">
+        <div>
+          <h1>Asistente de Originación PyME</h1>
+          <span className="muted small">El LLM propone · el software verifica · la base restringe · el humano confirma</span>
+        </div>
+        <div className="topbar__estado">
+          <Badge tono={dbArriba === null ? 'neutral' : dbArriba ? 'ok' : 'danger'}>
+            API {dbArriba === null ? '…' : dbArriba ? 'conectada' : 'sin base'}
+          </Badge>
+          <Badge tono={version?.config.llm_configured ? 'ok' : 'warn'}>
+            {version?.config.model ?? 'modelo no configurado'}
+          </Badge>
+        </div>
       </header>
 
-      <section className="card">
-        <h2>Estado del sistema</h2>
-        {estado === 'cargando' && <p>Consultando API...</p>}
-        {estado === 'error' && <p className="err">API no disponible: {error}</p>}
-        {estado === 'ok' && version && (
-          <dl>
-            <div><dt>API</dt><dd className="ok">conectada</dd></div>
-            <div><dt>PostgreSQL</dt><dd className={db === 'up' ? 'ok' : 'err'}>{db}</dd></div>
-            <div><dt>prompt_version</dt><dd>{version.prompt_version}</dd></div>
-            <div><dt>policy_corpus_version</dt><dd>{version.policy_corpus_version}</dd></div>
-            <div><dt>indicator_calc_version</dt><dd>{version.indicator_calc_version}</dd></div>
-          </dl>
-        )}
-      </section>
+      <nav className="tabs">
+        <button type="button" className={tab === 'analisis' ? 'tab tab--on' : 'tab'} onClick={() => setTab('analisis')}>
+          Análisis
+        </button>
+        <button type="button" className={tab === 'metricas' ? 'tab tab--on' : 'tab'} onClick={() => setTab('metricas')}>
+          Métricas
+        </button>
+      </nav>
 
-      <section className="card muted">
-        <h2>Pendiente</h2>
-        <p>
-          Chat, streaming SSE, panel de dictamen, citas, autorizacion humana y metricas se implementan
-          en FASE 3 y FASE 5. Esta vista solo verifica el arranque del monorepo.
-        </p>
-      </section>
-    </main>
+      {tab === 'metricas' ? (
+        <main className="contenido contenido--simple">
+          <MetricsPanel refrescar={refrescoMetricas} />
+        </main>
+      ) : (
+        <main className="contenido">
+          <div className="col col--izq">
+            <ApplicationList
+              visibles={solicitudes.visibles}
+              seleccionada={seleccionada?.id_solicitud ?? null}
+              onSeleccionar={(s) => void seleccionar(s)}
+              cargando={solicitudes.cargando}
+              error={solicitudes.error}
+              filtro={solicitudes.filtro}
+              onFiltro={solicitudes.setFiltro}
+              busqueda={solicitudes.busqueda}
+              onBusqueda={solicitudes.setBusqueda}
+            />
+          </div>
+
+          <div className="col col--centro">
+            {!seleccionada && (
+              <section className="panel">
+                <p className="muted pad">
+                  Selecciona una solicitud del listado para ver sus datos e iniciar el análisis.
+                </p>
+              </section>
+            )}
+
+            {seleccionada && (
+              <>
+                <ApplicationDetail
+                  solicitud={seleccionada}
+                  indicadores={indicadores}
+                  g5Detectado={g5 !== undefined}
+                  patronesG5={patronesG5}
+                />
+
+                <div className="acciones">
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    disabled={corriendo}
+                    onClick={() => void analisis.analizar(seleccionada.id_solicitud)}
+                  >
+                    {corriendo ? 'Analizando…' : 'Analizar solicitud'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    disabled={!corriendo}
+                    onClick={analisis.cancelar}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+
+                <AgentActivityTimeline eventos={analisis.eventos} estado={analisis.estado} />
+                <IndicatorPanel indicadores={indicadores} />
+              </>
+            )}
+          </div>
+
+          <div className="col col--der">
+            <DictamenPanel
+              resultado={analisis.resultado}
+              estado={analisis.estado}
+              error={analisis.error}
+              onAutorizar={autorizar}
+              onReintentar={() => seleccionada && void analisis.analizar(seleccionada.id_solicitud)}
+            />
+            {analisis.resultado && <ExecutionDetails resultado={analisis.resultado} version={version} />}
+          </div>
+        </main>
+      )}
+    </div>
   );
+}
+
+interface DictamenPersistido {
+  id?: string;
+  application_id?: string;
+  decision?: string;
+  recommended_amount?: string | null;
+  recommended_term_months?: number | null;
+  risk_level?: string;
+  confidence?: string;
+  requires_human_authorization?: boolean;
+  operational_status?: string;
+  reasons?: string[];
+  indicators_snapshot?: Record<string, unknown>;
+  citas?: Array<{ id_politica: string; seccion: string; texto_literal: string }>;
+  created_at?: string;
+}
+
+/**
+ * Reconstruye la vista a partir del último dictamen persistido, para que al
+ * volver a una solicitud ya analizada no se pierda el resultado.
+ *
+ * Es lectura de la DB real vía endpoint, no un resultado inventado: los campos
+ * de ejecución (tokens, iteraciones) quedan vacíos porque pertenecen al run,
+ * no al dictamen.
+ */
+function reconstruirDesdeDictamen(fila: Record<string, unknown>): AnalisisResultado {
+  const d = fila as DictamenPersistido;
+  return {
+    runId: '',
+    confirmacion: {
+      id_dictamen: d.id ?? '',
+      id_solicitud: d.application_id ?? '',
+      operational_status: (d.operational_status ?? 'GENERATED') as never,
+      decision: (d.decision ?? 'ESCALADO_A_COMITE') as never,
+      requiere_autorizacion_humana: d.requires_human_authorization ?? false,
+      reutilizado: true,
+      created_at: d.created_at ?? '',
+    },
+    dictamen: {
+      id_solicitud: d.application_id ?? '',
+      decision: (d.decision ?? 'ESCALADO_A_COMITE') as never,
+      monto_recomendado: d.recommended_amount ?? null,
+      plazo_recomendado_meses: d.recommended_term_months ?? null,
+      indicadores: (d.indicators_snapshot ?? {}) as never,
+      politicas_citadas: d.citas ?? [],
+      motivos: d.reasons ?? [],
+      nivel_riesgo: (d.risk_level ?? 'MEDIO') as never,
+      requiere_autorizacion_humana: d.requires_human_authorization ?? false,
+      confianza: Number(d.confidence ?? 0),
+    },
+    politicasRecuperadas: [],
+    findings: [],
+    usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, estimatedCost: '0.000000', costReportedByProvider: false },
+    latencyMs: 0,
+    toolSequence: [],
+    resolvedModel: null,
+    lastFinishReason: null,
+    iterationDiagnostics: [],
+  };
 }

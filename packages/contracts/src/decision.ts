@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { nullableMoneyString, moneyString } from './money.js';
+import { nullableMoneyString, moneyString, toMoney } from './money.js';
 import { DecisionSchema, NivelRiesgoSchema, OperationalStatusSchema } from './enums.js';
 import { IndicadoresSchema } from './indicators.js';
 import { FragmentoPoliticaSchema } from './policy.js';
@@ -26,15 +26,70 @@ export const DictamenSchema = z.object({
 export type Dictamen = z.infer<typeof DictamenSchema>;
 
 /**
- * Version relajada que se pide al modelo: sin `indicadores` (los inyecta el backend)
- * y sin `id_solicitud` libre. Reduce la superficie de alucinacion numerica.
+ * Lo unico que el modelo produce.
+ *
+ * Diferencias clave con `Dictamen`:
+ *  - sin `indicadores`: los inyecta el backend (G2);
+ *  - sin `id_solicitud` libre;
+ *  - **sin citas**. El modelo devuelve `policy_ids`, es decir REFERENCIAS a
+ *    politicas existentes. La terna citable (id, seccion, texto_literal) la
+ *    construye el backend leyendo el corpus.
+ *
+ * El motivo es empirico: en la primera evaluacion contra un modelo real, el
+ * modelo invento identificadores (POL-ELIG-001, CAP-001, POL-001) y textos
+ * literales. Si el modelo no puede escribir el texto de una cita, no puede
+ * alucinarla. G1 sigue activo como ultima defensa.
  */
+/**
+ * Limites de tamano de la salida del modelo.
+ *
+ * Existen porque un dictamen es pequeno: decision, monto, plazo, unas pocas
+ * referencias y hasta cinco motivos. Con Nemotron, CASE-01 consumio los 5000
+ * tokens de salida sin producir dictamen. Acotar el esquema le quita al modelo
+ * el espacio para divagar, y ademas hace que una generacion descontrolada falle
+ * en la validacion en vez de agotar el presupuesto en silencio.
+ *
+ * Los mismos numeros se replican en el JSON Schema que viaja al proveedor.
+ */
+export const LIMITES_DICTAMEN_LLM = {
+  MOTIVOS_MIN: 1,
+  MOTIVOS_MAX: 5,
+  MOTIVO_MAX_CHARS: 350,
+  POLICY_IDS_MAX: 10,
+  POLICY_ID_MAX_CHARS: 40,
+  MONTO_MAX_CHARS: 24,
+} as const;
+
+/**
+ * Monto tal como lo emite el modelo. Se acota la longitud ANTES de normalizar:
+ * `moneyString` acepta cualquier cadena numerica, y una cadena de 4000 digitos
+ * es una generacion descontrolada, no un monto.
+ */
+const montoDelModelo = z
+  .union([z.string().max(LIMITES_DICTAMEN_LLM.MONTO_MAX_CHARS), z.number(), z.null()])
+  .transform((v, ctx) => {
+    if (v === null) return null;
+    try {
+      return toMoney(v);
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'monto decimal invalido' });
+      return z.NEVER;
+    }
+  });
+
 export const DictamenLLMSchema = z.object({
   decision: DecisionSchema,
-  monto_recomendado: nullableMoneyString,
+  monto_recomendado: montoDelModelo,
   plazo_recomendado_meses: z.number().int().min(1).max(120).nullable(),
-  politicas_citadas: z.array(CitaPoliticaSchema),
-  motivos: z.array(z.string().min(1)).min(1).max(10),
+  /** Identificadores de politicas del corpus. Nunca texto de politica. */
+  policy_ids: z
+    .array(z.string().min(1).max(LIMITES_DICTAMEN_LLM.POLICY_ID_MAX_CHARS))
+    .max(LIMITES_DICTAMEN_LLM.POLICY_IDS_MAX)
+    .default([]),
+  motivos: z
+    .array(z.string().min(1).max(LIMITES_DICTAMEN_LLM.MOTIVO_MAX_CHARS))
+    .min(LIMITES_DICTAMEN_LLM.MOTIVOS_MIN)
+    .max(LIMITES_DICTAMEN_LLM.MOTIVOS_MAX),
   nivel_riesgo: NivelRiesgoSchema,
   confianza: z.number().min(0).max(1),
 });

@@ -1,0 +1,8 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# pnpm 10 no ejecuta postinstall de dependencias salvo que se autoricen aqui.
+# esbuild (via Vite) descarga su binario nativo en postinstall.
+onlyBuiltDependencies:
+  - esbuild

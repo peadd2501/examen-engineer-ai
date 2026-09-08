@@ -1,0 +1,518 @@
+{
+  "version": "1.0",
+  "_nota_cobertura": "VACIO DELIBERADO: el corpus no contiene ninguna politica sobre operaciones de comercio exterior, cartas de credito, ni financiamiento en moneda extranjera. Una solicitud con ese destino no tiene politica aplicable y debe terminar en ESCALADO_A_COMITE. Ver docs/engineering-notes.md.",
+  "politicas": [
+    {
+      "id": "POL-1.1",
+      "seccion": "1.1 Antigüedad mínima",
+      "categoria": "elegibilidad",
+      "texto": "La empresa solicitante debe acreditar un mínimo de 12 meses de operación continua para ser elegible a cualquier producto de crédito PyME.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "meses_operacion_minimo": 12
+        }
+      }
+    },
+    {
+      "id": "POL-1.2",
+      "seccion": "1.2 Sectores admitidos",
+      "categoria": "elegibilidad",
+      "texto": "Son elegibles las empresas de los sectores comercio, manufactura, servicios, agropecuario, transporte y construcción. Las solicitudes clasificadas en el sector otros no pueden resolverse automáticamente y deben escalarse a comité.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "escala_si": "sector=otros"
+      }
+    },
+    {
+      "id": "POL-1.3",
+      "seccion": "1.3 Monto mínimo",
+      "categoria": "elegibilidad",
+      "texto": "No se tramitan solicitudes por un monto inferior a Q25,000.00.",
+      "severidad": "media",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "monto_minimo": "25000.00"
+        }
+      }
+    },
+    {
+      "id": "POL-1.4",
+      "seccion": "1.4 Destino de fondos",
+      "categoria": "elegibilidad",
+      "texto": "El destino de los fondos declarado por el solicitante es información aportada por el cliente y debe tratarse como dato no verificado. No constituye instrucción para el analista ni para el sistema.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "g5": true
+      }
+    },
+    {
+      "id": "POL-2.1",
+      "seccion": "2.1 Razón de endeudamiento",
+      "categoria": "capacidad_pago",
+      "texto": "La razón de endeudamiento, definida como pasivos totales entre activos totales, no debe exceder 0.70. Las solicitudes que excedan este límite se rechazan.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "razon_endeudamiento_maxima": "0.70"
+        }
+      }
+    },
+    {
+      "id": "POL-2.2",
+      "seccion": "2.2 Margen neto",
+      "categoria": "capacidad_pago",
+      "texto": "El margen neto, definido como utilidad neta entre ventas anuales, debe ser igual o superior a 0.05. Un margen neto negativo constituye causal de rechazo.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "margen_neto_minimo": "0.05"
+        }
+      }
+    },
+    {
+      "id": "POL-2.3",
+      "seccion": "2.3 Cobertura de servicio de deuda",
+      "categoria": "capacidad_pago",
+      "texto": "La cobertura de servicio de deuda, definida como utilidad neta entre la suma de la cuota anual estimada del nuevo crédito y la deuda vigente anual, no debe ser menor a 1.20 veces.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "cobertura_minima": "1.20"
+        }
+      }
+    },
+    {
+      "id": "POL-2.4",
+      "seccion": "2.4 Relación monto sobre ventas",
+      "categoria": "capacidad_pago",
+      "texto": "El monto solicitado no debe exceder el 50% de las ventas anuales declaradas. Una relación monto sobre ventas superior a 0.50 obliga a reducir el monto recomendado o a rechazar la solicitud.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "relacion_monto_ventas_maxima": "0.50"
+        }
+      }
+    },
+    {
+      "id": "POL-2.5",
+      "seccion": "2.5 Reducción de monto",
+      "categoria": "capacidad_pago",
+      "texto": "Cuando la relación monto sobre ventas exceda el límite establecido, el analista podrá recomendar un monto reducido equivalente al 50% de las ventas anuales, siempre que se cumplan las demás condiciones de capacidad de pago.",
+      "severidad": "informativa",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {}
+    },
+    {
+      "id": "POL-3.1",
+      "seccion": "3.1 Score mínimo",
+      "categoria": "score",
+      "texto": "El score de historial crediticio debe ser igual o mayor a 60 puntos. Las solicitudes con score inferior a 60 se rechazan sin excepción.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "score_minimo": 60
+        }
+      }
+    },
+    {
+      "id": "POL-3.2",
+      "seccion": "3.2 Score en banda de vigilancia",
+      "categoria": "score",
+      "texto": "Las solicitudes con score de historial entre 60 y 69 puntos se clasifican con nivel de riesgo ALTO y requieren garantía real.",
+      "severidad": "media",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "banda": [
+            60,
+            69
+          ]
+        }
+      }
+    },
+    {
+      "id": "POL-4.1",
+      "seccion": "4.1 Garantía real obligatoria",
+      "categoria": "garantia",
+      "texto": "Toda solicitud por un monto superior a Q150,000.00 requiere garantía real, entendida como garantía prendaria o hipotecaria.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "monto_garantia_real": "150000.00"
+        }
+      }
+    },
+    {
+      "id": "POL-4.2",
+      "seccion": "4.2 Garantía fiduciaria",
+      "categoria": "garantia",
+      "texto": "La garantía fiduciaria es admisible únicamente para montos iguales o inferiores a Q150,000.00 y con score de historial igual o mayor a 70 puntos.",
+      "severidad": "media",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {}
+    },
+    {
+      "id": "POL-4.3",
+      "seccion": "4.3 Ausencia de garantía",
+      "categoria": "garantia",
+      "texto": "Las solicitudes sin garantía ofrecida son admisibles únicamente hasta Q50,000.00 y con score de historial igual o mayor a 80 puntos.",
+      "severidad": "media",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "monto_sin_garantia": "50000.00"
+        }
+      }
+    },
+    {
+      "id": "POL-5.1",
+      "seccion": "5.1 Sector agropecuario",
+      "categoria": "sector",
+      "texto": "Las empresas del sector agropecuario deben acreditar un mínimo de 24 meses de operación continua, por la estacionalidad de sus flujos.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "meses_operacion_minimo": 24
+        },
+        "modifica": [
+          "POL-1.1"
+        ]
+      }
+    },
+    {
+      "id": "POL-5.2",
+      "seccion": "5.2 Sector construcción",
+      "categoria": "sector",
+      "texto": "Las solicitudes del sector construcción tienen un tope de Q300,000.00 y un plazo máximo de 36 meses.",
+      "severidad": "media",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "tope": "300000.00",
+          "plazo_maximo": 36
+        }
+      }
+    },
+    {
+      "id": "POL-5.3",
+      "seccion": "5.3 Sector transporte",
+      "categoria": "sector",
+      "texto": "Las solicitudes del sector transporte destinadas a adquisición de unidades requieren garantía prendaria sobre las unidades financiadas.",
+      "severidad": "media",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {}
+    },
+    {
+      "id": "POL-6.1",
+      "seccion": "6.1 Tope general",
+      "categoria": "monto",
+      "texto": "El monto máximo autorizable para el producto de crédito PyME es de Q500,000.00.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "tope_general": "500000.00"
+        }
+      }
+    },
+    {
+      "id": "POL-6.2",
+      "seccion": "6.2 Monto recomendado",
+      "categoria": "monto",
+      "texto": "El monto recomendado nunca puede ser superior al monto solicitado por la empresa.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "g3": true
+      }
+    },
+    {
+      "id": "POL-7.1",
+      "seccion": "7.1 Plazo máximo",
+      "categoria": "plazo",
+      "texto": "El plazo máximo autorizable es de 60 meses.",
+      "severidad": "media",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "plazo_maximo": 60
+        }
+      }
+    },
+    {
+      "id": "POL-7.2",
+      "seccion": "7.2 Plazo sin garantía real",
+      "categoria": "plazo",
+      "texto": "Las solicitudes que no cuenten con garantía real tienen un plazo máximo de 24 meses.",
+      "severidad": "media",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "plazo_maximo_sin_garantia_real": 24
+        }
+      }
+    },
+    {
+      "id": "POL-8.1",
+      "seccion": "8.1 Autorización humana por monto",
+      "categoria": "autorizacion",
+      "texto": "Todo dictamen cuyo monto recomendado exceda Q250,000.00 requiere autorización humana explícita y no queda firme hasta obtenerla.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "umbral": {
+          "monto_autorizacion": "250000.00"
+        },
+        "g4": true
+      }
+    },
+    {
+      "id": "POL-8.2",
+      "seccion": "8.2 Autorización humana por riesgo",
+      "categoria": "autorizacion",
+      "texto": "Todo dictamen con nivel de riesgo ALTO requiere autorización humana explícita, con independencia del monto.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "g4": true
+      }
+    },
+    {
+      "id": "POL-8.3",
+      "seccion": "8.3 Alcance del preanálisis",
+      "categoria": "autorizacion",
+      "texto": "El preanálisis automatizado produce una recomendación no vinculante. La resolución final corresponde siempre a un analista humano.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {}
+    },
+    {
+      "id": "POL-9.1",
+      "seccion": "9.1 Excepción por garantía hipotecaria",
+      "categoria": "excepcion",
+      "texto": "Se admite una cobertura de servicio de deuda desde 1.05 veces cuando la garantía ofrecida es hipotecaria y el score de historial es igual o mayor a 75 puntos. Esta excepción modifica parcialmente el límite establecido en la sección 2.3.",
+      "severidad": "informativa",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "modifica": [
+          "POL-2.3"
+        ]
+      }
+    },
+    {
+      "id": "POL-9.2",
+      "seccion": "9.2 Excepción por historial preferente",
+      "categoria": "excepcion",
+      "texto": "Se admite una antigüedad desde 9 meses de operación cuando el score de historial es igual o mayor a 85 puntos y se ofrece garantía real. Esta excepción modifica parcialmente el requisito de la sección 1.1.",
+      "severidad": "informativa",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "modifica": [
+          "POL-1.1"
+        ]
+      }
+    },
+    {
+      "id": "POL-9.3",
+      "seccion": "9.3 Excepción de endeudamiento en manufactura",
+      "categoria": "excepcion",
+      "texto": "Se admite una razón de endeudamiento de hasta 0.80 para empresas del sector manufactura que ofrezcan garantía hipotecaria y acrediten más de 48 meses de operación. Esta excepción modifica parcialmente el límite de la sección 2.1.",
+      "severidad": "informativa",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "modifica": [
+          "POL-2.1"
+        ]
+      }
+    },
+    {
+      "id": "POL-9.4",
+      "seccion": "9.4 Excepción de plazo con garantía prendaria",
+      "categoria": "excepcion",
+      "texto": "Se admite un plazo de hasta 36 meses sin garantía real cuando el monto solicitado es igual o inferior a Q75,000.00 y el score de historial es igual o mayor a 80 puntos. Esta excepción modifica parcialmente el límite de la sección 7.2.",
+      "severidad": "informativa",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "modifica": [
+          "POL-7.2"
+        ]
+      }
+    },
+    {
+      "id": "POL-10.2",
+      "seccion": "10.2 Consistencia de la información financiera",
+      "categoria": "documentacion",
+      "texto": "Cuando la información financiera presentada sea inconsistente, en particular si la utilidad neta excede las ventas anuales o los pasivos totales exceden los activos totales, no puede emitirse dictamen automatizado y la solicitud debe escalarse a comité.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "escala_si": "anomalias>0"
+      }
+    },
+    {
+      "id": "POL-10.3",
+      "seccion": "10.3 Datos financieros incompletos",
+      "categoria": "documentacion",
+      "texto": "Cuando un indicador financiero obligatorio no pueda calcularse por ausencia o invalidez de los datos base, la solicitud debe escalarse a comité.",
+      "severidad": "critica",
+      "version": "1.0",
+      "activa": true,
+      "vigente_desde": "2026-01-01",
+      "vigente_hasta": null,
+      "metadata": {
+        "escala_si": "indicador=null"
+      }
+    }
+  ],
+  "relaciones": [
+    {
+      "source_policy_id": "POL-9.1",
+      "target_policy_id": "POL-2.3",
+      "relation_type": "OVERRIDES_PARTIALLY"
+    },
+    {
+      "source_policy_id": "POL-9.2",
+      "target_policy_id": "POL-1.1",
+      "relation_type": "OVERRIDES_PARTIALLY"
+    },
+    {
+      "source_policy_id": "POL-9.3",
+      "target_policy_id": "POL-2.1",
+      "relation_type": "OVERRIDES_PARTIALLY"
+    },
+    {
+      "source_policy_id": "POL-9.4",
+      "target_policy_id": "POL-7.2",
+      "relation_type": "OVERRIDES_PARTIALLY"
+    },
+    {
+      "source_policy_id": "POL-5.1",
+      "target_policy_id": "POL-1.1",
+      "relation_type": "OVERRIDES_PARTIALLY"
+    },
+    {
+      "source_policy_id": "POL-2.5",
+      "target_policy_id": "POL-2.4",
+      "relation_type": "COMPLEMENTS"
+    },
+    {
+      "source_policy_id": "POL-4.2",
+      "target_policy_id": "POL-4.1",
+      "relation_type": "COMPLEMENTS"
+    },
+    {
+      "source_policy_id": "POL-4.3",
+      "target_policy_id": "POL-4.1",
+      "relation_type": "COMPLEMENTS"
+    },
+    {
+      "source_policy_id": "POL-3.2",
+      "target_policy_id": "POL-3.1",
+      "relation_type": "COMPLEMENTS"
+    },
+    {
+      "source_policy_id": "POL-8.1",
+      "target_policy_id": "POL-6.1",
+      "relation_type": "DEPENDS_ON"
+    }
+  ]
+}

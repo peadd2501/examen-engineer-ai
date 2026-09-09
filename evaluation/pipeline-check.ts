@@ -71,21 +71,44 @@ function guionGenerico(): ChatFn {
       }
     }
 
+    // Fase FINALIZER (FASE 3.4): la unica funcion ofrecida es el finalizer y el
+    // cierre se emite como llamada forzada, no como contenido libre. El guion
+    // tiene que hablar el mismo protocolo que el proveedor real.
+    const ofrecida = request.tools?.[0] as { function?: { name?: string } } | undefined;
+    const nombreFinalizer = ofrecida?.function?.name;
+    if (request.toolChoice !== 'auto' && nombreFinalizer !== undefined) {
+      return {
+        message: {
+          role: 'assistant',
+          content: null,
+          tool_calls: [{
+            id: 'f1',
+            type: 'function',
+            function: {
+              name: nombreFinalizer,
+              arguments: JSON.stringify({
+                decision: 'APROBADO',
+                monto_recomendado: '50000.00',
+                plazo_recomendado_meses: 24,
+                policy_ids: recuperadas.slice(0, 2),
+                motivos: ['Indicadores dentro de los umbrales de las politicas recuperadas.'],
+                confianza: 0.82,
+              }),
+            },
+          }],
+        },
+        finishReason: 'tool_calls',
+        usage: { inputTokens: 1600, outputTokens: 220, reasoningTokens: 0, cost: null },
+        resolvedModel: 'scripted/deterministic',
+        raw: {},
+      };
+    }
+
+    // Fase AGENT sin mas herramientas que pedir: se cierra el bucle.
     return {
-      message: {
-        role: 'assistant',
-        content: JSON.stringify({
-          decision: 'APROBADO',
-          monto_recomendado: '50000.00',
-          plazo_recomendado_meses: 24,
-          policy_ids: recuperadas.slice(0, 2),
-          motivos: ['Indicadores dentro de los umbrales de las politicas recuperadas.'],
-          nivel_riesgo: 'BAJO',
-          confianza: 0.82,
-        }),
-      },
+      message: { role: 'assistant', content: null },
       finishReason: 'stop',
-      usage: { inputTokens: 1600, outputTokens: 220, reasoningTokens: 0, cost: null },
+      usage: { inputTokens: 1600, outputTokens: 40, reasoningTokens: 0, cost: null },
       resolvedModel: 'scripted/deterministic',
       raw: {},
     };

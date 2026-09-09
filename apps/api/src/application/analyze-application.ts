@@ -212,7 +212,7 @@ export async function analizarSolicitud(
   const clave = generarClaveIdempotencia(solicitud.id_solicitud, input.intentoLogico ?? runId);
 
   try {
-    const { confirmacion, findings: persistFindings } = await registrarDictamen(pool, {
+    const { confirmacion, findings: persistFindings, citasVerificadas } = await registrarDictamen(pool, {
       id_solicitud: solicitud.id_solicitud,
       dictamen,
       clave_idempotencia: clave,
@@ -251,7 +251,14 @@ export async function analizarSolicitud(
     return {
       runId,
       confirmacion,
-      dictamen: { ...dictamen, decision: confirmacion.decision, requiere_autorizacion_humana: confirmacion.requiere_autorizacion_humana },
+      // Las citas que salen son las PERSISTIDAS: incluyen las que agrego el
+      // backend por sus propias reglas y excluyen las que G1 no pudo verificar.
+      dictamen: {
+        ...dictamen,
+        decision: confirmacion.decision,
+        requiere_autorizacion_humana: confirmacion.requiere_autorizacion_humana,
+        politicas_citadas: citasVerificadas,
+      },
       politicasRecuperadas: resultado.politicasRecuperadas,
       findings,
       usage: resultado.usage,

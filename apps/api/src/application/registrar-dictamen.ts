@@ -4,6 +4,9 @@ import {
   ConfirmacionSchema,
   DictamenSchema,
   GuardrailViolationError,
+  evaluarCobertura,
+  politicasAplicadasPorBackend,
+  type CitaPolitica,
   type Confirmacion,
   type Dictamen,
 } from '@credit/contracts';
@@ -18,6 +21,7 @@ import {
   type GuardrailFinding,
 } from '../domain/guardrails/index.js';
 import { calcularIndicadores } from '@credit/contracts';
+import { hidratarCitas } from '../agents/corpus-context.js';
 
 export interface RegistrarDictamenInput {
   id_solicitud: string;
@@ -31,6 +35,13 @@ export interface RegistrarDictamenInput {
 export interface RegistrarDictamenResult {
   confirmacion: Confirmacion;
   findings: GuardrailFinding[];
+  /**
+   * Citas realmente persistidas: las del modelo que G1 verifico, mas las que
+   * el backend agrego por las reglas que aplico el mismo. Es lo que debe
+   * mostrarse y evaluarse; `input.dictamen.politicas_citadas` es solo la
+   * propuesta previa a la verificacion.
+   */
+  citasVerificadas: CitaPolitica[];
 }
 
 interface DecisionRow {
@@ -60,7 +71,11 @@ export async function registrarDictamen(
   // original sin tocar nada. La UNIQUE de la DB es la ultima defensa, no la unica.
   const existente = await buscarPorClave(pool, input.clave_idempotencia);
   if (existente) {
-    return { confirmacion: aConfirmacion(existente, true), findings: [] };
+    return {
+      confirmacion: aConfirmacion(existente, true),
+      findings: [],
+      citasVerificadas: await citasPersistidas(pool, existente.id),
+    };
   }
 
   const { rows } = await pool.query<ApplicationRow>('SELECT * FROM applications WHERE id = $1', [input.id_solicitud]);
@@ -86,11 +101,50 @@ export async function registrarDictamen(
     });
   }
 
+  // --- COBERTURA: existe politica aplicable? -------------------------------
+  // Pregunta distinta de G1. G1 verifica que una cita EXISTA; esto verifica que
+  // el corpus LEGISLE la operacion. Una politica puede existir y no aplicar.
+  // Si no hay cobertura, no hay recomendacion defendible: escala a comite, por
+  // la misma via que ya usa una cita no verificable.
+  const cobertura = evaluarCobertura(solicitud);
+  if (!cobertura.cubierta) {
+    for (const motivo of cobertura.motivos) {
+      findings.push({
+        guardrail: 'G1',
+        code: 'NO_APPLICABLE_POLICY',
+        message: `${motivo.codigo}: ${motivo.detalle}`,
+        details: { politica: motivo.politica, codigo: motivo.codigo, literal: motivo.literal },
+      });
+    }
+    decision = 'ESCALADO_A_COMITE';
+    montoRecomendado = null;
+    plazoRecomendado = null;
+  }
+
+  // --- Evidencia de lo que aplico el backend --------------------------------
+  // POL-8.1, POL-8.2, factores de riesgo y motivos de cobertura los determina el
+  // backend, no el modelo: su evidencia no puede depender de que el modelo se
+  // acuerde de citarlos. Se hidratan del corpus igual que las demas y pasan por
+  // G1 en la misma llamada, asi que una referencia inexistente no entra.
+  const idsBackend = politicasAplicadasPorBackend({
+    solicitud,
+    indicadores,
+    montoRecomendado,
+    nivelRiesgo: input.dictamen.nivel_riesgo,
+    cobertura,
+  });
+  const yaCitadas = new Set(input.dictamen.politicas_citadas.map((c) => c.id_politica));
+  const faltantes = idsBackend.filter((id) => !yaCitadas.has(id));
+  const { citas: citasBackend } = faltantes.length > 0
+    ? await hidratarCitas(pool, faltantes)
+    : { citas: [] };
+  const citasParaVerificar = [...input.dictamen.politicas_citadas, ...citasBackend];
+
   // --- G1: citas verificables ----------------------------------------------
   const g1 = await verificarCitas(pool, {
-    citas: input.dictamen.politicas_citadas,
+    citas: citasParaVerificar,
     decisionFirme: decision === 'APROBADO' || decision === 'RECHAZADO',
-    politicasRecuperadas: input.politicasRecuperadas ?? [],
+    politicasRecuperadas: [...(input.politicasRecuperadas ?? []), ...faltantes],
   });
   findings.push(...g1.findings);
   // Solo lo verificado llega a la base. Una cita inventada se descarta aqui;
@@ -169,14 +223,16 @@ export async function registrarDictamen(
       agentRunId: input.agentRunId ?? null,
     });
     await client.query('COMMIT');
-    return { confirmacion: aConfirmacion(persistido, false), findings };
+    return { confirmacion: aConfirmacion(persistido, false), findings, citasVerificadas };
   } catch (error) {
     await client.query('ROLLBACK');
 
     // Carrera: otra transaccion gano con la misma clave. Se devuelve la suya.
     if (esViolacionUnique(error)) {
       const ganador = await buscarPorClave(pool, input.clave_idempotencia);
-      if (ganador) return { confirmacion: aConfirmacion(ganador, true), findings };
+      if (ganador) {
+        return { confirmacion: aConfirmacion(ganador, true), findings, citasVerificadas: await citasPersistidas(pool, ganador.id) };
+      }
     }
     throw error;
   } finally {
@@ -261,4 +317,17 @@ function esViolacionUnique(error: unknown): boolean {
 /** Clave de idempotencia. La genera el backend; el modelo nunca la ve. */
 export function generarClaveIdempotencia(idSolicitud: string, intentoLogico: string): string {
   return `${idSolicitud}:${intentoLogico}`;
+}
+
+/** Citas ya persistidas de un dictamen, para las reutilizaciones idempotentes. */
+async function citasPersistidas(pool: Pool, idDictamen: string): Promise<CitaPolitica[]> {
+  const { rows } = await pool.query<{ id_politica: string; seccion: string; texto_literal: string }>(
+    `SELECT c.policy_id AS id_politica, p.section AS seccion, p.text AS texto_literal
+       FROM decision_policy_citations c
+       JOIN policies p ON p.id = c.policy_id
+      WHERE c.decision_id = $1 AND c.verified
+      ORDER BY c.policy_id`,
+    [idDictamen],
+  );
+  return rows;
 }

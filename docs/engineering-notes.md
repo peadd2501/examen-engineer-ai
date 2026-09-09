@@ -1112,3 +1112,92 @@ Contra la API con un proveedor que trunca la primera respuesta, CASE-04 termina 
          1 | length        |          5000 |              116 | f
          2 | stop          |           120 |                0 | t
 ```
+
+---
+
+# FASE 3.4 — Finalización estructurada mediante function call forzada
+
+## 2026-09-08 — El modelo no entraba en modo "emitir el objeto"
+
+### Contexto
+Tras FASE 3.3 el pipeline entero estaba en verde salvo la finalización. CASE-09 no fallaba por criterio ni por política: fallaba mecánicamente. Con `response_format: json_schema` el modelo elegía cuándo y cómo cerrar, y con Liquid nunca lo hacía.
+
+### Evidencia
+Corrida real de CASE-09, las dos llamadas:
+
+```
+intento 1:   finish_reason=length   max_tokens=5000   reasoning=161   content≈5188 chars   schema=false
+reparación:  finish_reason=length   max_tokens=1400   reasoning=1400  content=0 chars      schema=false
+```
+
+Los dos números que importan: en el primer intento gastó 5000 tokens produciendo 5188 caracteres que no validaban; en la reparación compacta gastó **los 1400 tokens completos en razonamiento** y devolvió contenido vacío. Subir el presupuesto no arregla ninguno de los dos: el primero no se quedó corto de espacio, y el segundo no llegó a escribir nada.
+
+El diagnóstico no era presupuesto. Era modo de generación: el modelo producía prosa libre esperando que además resultara ser JSON, y nunca entraba en el modo de emitir un objeto.
+
+### Decisión
+Separar la finalización en una fase propia con **function call forzada**.
+
+El run pasa a tener dos fases:
+
+- **AGENT** — bucle de herramientas, `tool_choice: 'auto'`, **sin** `response_format`. Termina cuando el modelo deja de pedir herramientas.
+- **FINALIZER** — una sola llamada. Única función ofrecida: `emitir_dictamen_estructurado`, con `strict: true` y `parameters` = `DictamenLLMSchema`. `tool_choice` forzado a esa función. Contexto reconstruido desde cero: solicitud estructurada, indicadores autoritativos, resumen cerrado del destino, corpus completo y lista de políticas consultadas. Sin historial de la fase anterior, sin herramientas de dominio, sin el texto crudo del solicitante. `max_tokens: 1200`.
+
+`emitir_dictamen_estructurado` **no es una sexta herramienta de negocio**: no está en el `ToolRegistry`, no es ejecutable, no toca la base, no tiene efectos, no aparece en la allowlist de dominio y no sustituye a `registrar_dictamen`. Es un contrato de salida provider-side; sus argumentos **son** el resultado y la función nunca se ejecuta. Las cinco capacidades del enunciado siguen intactas, y hay un test que lo afirma sobre las claves del registry.
+
+Validación estricta, sin interpretación: `finish_reason` compatible → exactamente una llamada → nombre correcto → argumentos no vacíos → JSON válido → esquema cumplido. Cualquier otra cosa es un código explícito (`FINALIZER_TRUNCATED`, `FINALIZER_NO_FUNCTION_CALL`, `FINALIZER_MULTIPLE_CALLS`, `FINALIZER_WRONG_FUNCTION`, `FINALIZER_EMPTY_ARGUMENTS`, `FINALIZER_INVALID_JSON`, `FINALIZER_SCHEMA_INVALID`).
+
+Una única reparación, con **la misma función forzada**. Nunca se vuelve a `response_format`: eso sería un fallback silencioso a un camino que ya demostró no funcionar con este modelo. Sin tercer intento. Si la reparación también falla, el error final nombra las dos causas y distingue `OUTPUT_TOKEN_LIMIT_EXCEEDED` (truncación) de `FINALIZER_FAILED`.
+
+Esto **sustituye** la reparación compacta descrita en la entrada de FASE 3.3: aquella reintentaba con otro contexto pero por el mismo camino de generación libre, que es justamente lo que fallaba.
+
+`max_tokens` no se subió en ningún punto. El finalizer usa 1200.
+
+### Trade-off
+- Se paga una llamada adicional por run: la fase AGENT ya no puede cerrar por sí misma. A cambio, la fase que decide no compite por presupuesto con la que investiga.
+- Depende de que el proveedor respete `tool_choice` forzado. Un proveedor que no lo soporte devuelve 400, que el cliente clasifica como `STRUCTURED_OUTPUT_UNSUPPORTED` o `PROVIDER_PARAMETER_REJECTED` — explícito, nunca degradado en silencio.
+- El finalizer no ve el historial de herramientas, solo la lista de políticas consultadas. Es deliberado (contexto limpio, sin salida rota previa), pero significa que un razonamiento intermedio del modelo se pierde entre fases.
+
+### Evidencia
+`agent_iterations` gana `phase` (`AGENT` / `FINALIZER` / `FINALIZER_REPAIR`, con `CHECK` en la base), `function_name` y `arguments_length` — longitud, nunca contenido: si esa columna fuera `text` cabrían los argumentos completos. Migración `0010_finalizer_phase.sql`.
+
+Payload real capturado contra un stub HTTP local (no OpenRouter), sobre el contexto de EVAL-CASE-09:
+
+```json
+{ "tool_choice": { "type": "function", "function": { "name": "emitir_dictamen_estructurado" } },
+  "tools": ["emitir_dictamen_estructurado"],
+  "strict": true,
+  "required": ["decision","monto_recomendado","plazo_recomendado_meses","policy_ids","motivos","confianza"],
+  "enum_policy_ids_len": 30,
+  "response_format": null,
+  "max_tokens": 1200,
+  "reasoning": null,
+  "seed": 20260907 }
+```
+
+Sin `indicadores`, sin `nivel_riesgo`, sin `requires_human_authorization`, sin `operational_status`, sin texto de citas: todo eso lo agrega el backend.
+
+34 tests en `agent-loop.test.ts` y 2 nuevos en `guardrails.test.ts` cubren el `tool_choice` forzado, la ausencia de herramientas de dominio en la llamada final, los siete códigos de error, la reparación única con la misma función, la metadata por fase y el `CHECK` de la base.
+
+`pnpm agent:smoke:finalizer` reproduce el payload real en una llamada y usa el mismo parser que producción. Verificado en ambas direcciones contra el stub: respuesta con `tool_calls` válidos → PASS/exit 0; `finish_reason=length` sin llamada → `FINALIZER_TRUNCATED`/exit 1.
+
+**Lo que aún no está probado:** que Liquid (u otro modelo real) cierre efectivamente por esta vía. La prueba en vivo de CASE-09 con el finalizer está pendiente por límite de cuota de OpenRouter.
+
+---
+
+## Índice de decisiones desde FASE 3
+
+Las once decisiones pedidas para la entrega, con la entrada de esta bitácora donde vive cada una:
+
+| Decisión | Entrada |
+|---|---|
+| OpenRouter directo en vez de framework de agentes | *El seam del proveedor está en `analyze()`, no en la llamada al modelo* |
+| Migración de npm a pnpm | *Gestor de paquetes: migración de npm a pnpm* |
+| Dataset determinista | *Dataset determinista: PRNG propio y UUID derivados* |
+| Compuerta de cobertura en el retrieval | *El retrieval necesita una compuerta de cobertura de términos* |
+| Corpus completo en contexto para 30 políticas | *Corpus completo en el contexto, en vez de depender del retrieval* |
+| Citas hidratadas por el backend | *El modelo deja de escribir citas; ahora solo referencia* |
+| Comité ≠ autorización humana | *Escalar a comité y requerir autorización humana son cosas distintas* |
+| Riesgo autoritativo en el backend | *`nivel_riesgo` sale del modelo y pasa al backend* |
+| El texto crudo sale del contexto decisional | *G5: el texto crudo sale del contexto decisional* |
+| CORS sobre SSE con `reply.hijack()` | *`reply.hijack()` descarta los headers de CORS* |
+| Finalizer forzado | *El modelo no entraba en modo "emitir el objeto"* (esta fase) |

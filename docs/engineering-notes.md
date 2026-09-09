@@ -1180,7 +1180,7 @@ Sin `indicadores`, sin `nivel_riesgo`, sin `requires_human_authorization`, sin `
 
 `pnpm agent:smoke:finalizer` reproduce el payload real en una llamada y usa el mismo parser que producción. Verificado en ambas direcciones contra el stub: respuesta con `tool_calls` válidos → PASS/exit 0; `finish_reason=length` sin llamada → `FINALIZER_TRUNCATED`/exit 1.
 
-**Lo que aún no está probado:** que Liquid (u otro modelo real) cierre efectivamente por esta vía. La prueba en vivo de CASE-09 con el finalizer está pendiente por límite de cuota de OpenRouter.
+> **Actualización (cierre).** Esta vía quedó validada en vivo: la evaluación final con `google/gemma-4-31b-it` cerró 10/10 con `finish_reason: tool_calls`. Ver la entrada *Evaluación final* al pie de este documento.
 
 ---
 
@@ -1201,3 +1201,120 @@ Las once decisiones pedidas para la entrega, con la entrada de esta bitácora do
 | El texto crudo sale del contexto decisional | *G5: el texto crudo sale del contexto decisional* |
 | CORS sobre SSE con `reply.hijack()` | *`reply.hijack()` descarta los headers de CORS* |
 | Finalizer forzado | *El modelo no entraba en modo "emitir el objeto"* (esta fase) |
+
+---
+
+# FASE 3.5 — Cobertura y atribución determinista de políticas
+
+## 2026-09-09 — Una política aplicada por el backend no aparecía citada (CASE-07)
+
+**Contexto.** CASE-07 salía `APROBADO / MEDIO / autorización true / PENDING_AUTHORIZATION`: todo correcto. El único fallo era `EXPECTED_POLICY_MISSING` — se esperaba POL-8.1 y la evidencia devuelta eran POL-1.1, POL-1.2 y POL-2.1 a POL-2.4.
+
+**Problema.** POL-8.1 —"todo dictamen cuyo monto recomendado exceda Q250,000.00 requiere autorización humana"— la aplica el backend en `requiereAutorizacionHumana()`, y la aplica bien. Pero las citas salían **exclusivamente** de los `policy_ids` del modelo, y desde FASE 3.4 la autorización humana ni siquiera forma parte de su esquema de salida: se la quitamos a propósito porque no es su decisión. El modelo citó lo que razonó y nunca mencionó POL-8.1. La regla se aplicaba y su evidencia no aparecía.
+
+**Decisión.** `politicasAplicadasPorBackend()` en `packages/contracts/src/policy-attribution.ts` recolecta los identificadores de toda evaluación determinista que ya nombra su política: `FactorRiesgo.politica`, `MotivoSinCobertura.politica`, y la autorización humana (POL-8.1 por monto, POL-8.2 por riesgo). Se hidratan desde `policies` con la misma función que las citas del modelo, se unen sin duplicados y **pasan por G1 en la misma llamada**.
+
+Principio: **si una condición la aplica el backend de forma determinista, su evidencia no puede depender de que el modelo se acuerde de citarla.**
+
+**Resultado.** CASE-07 persiste POL-8.1 junto a las citas del modelo, con su sección y texto literal leídos de la base. Decisión, riesgo y estado sin cambios.
+
+**Trade-off.** La atribución se calcula en `registrarDictamen`, donde ya se conocen el monto final y el riesgo autoritativo. Si G1 fuerza escalamiento *después* de agregar POL-8.1, el dictamen escalado queda citando la autorización por monto aunque ya no tenga monto: la cita es real y refleja lo que el backend evaluó, pero se lee raro. Es un borde no resuelto, y resolverlo habría exigido una rama por caso.
+
+---
+
+## 2026-09-09 — Política existente ≠ política aplicable (CASE-08)
+
+**Contexto.** CASE-08 salía `APROBADO / GENERATED` cuando lo esperado era `ESCALADO_A_COMITE / PENDING_COMMITTEE`. El fixture es `comercio`, 60 meses, score 84, prendaria, Q150,000: **todas las dimensiones que el corpus legisla están en rango**. Lo que no está cubierto es la operación — una carta de crédito de importación pagadera en euros, con cobertura cambiaria.
+
+**Problema.** Desde FASE 3.1 el corpus completo viaja en el contexto. Con las 30 políticas a la vista siempre hay reglas generales que "aplican" a cualquier solicitud cuyos números estén en rango, y el modelo concluyó que podía aprobar. Nadie hacía la pregunta que faltaba: el único componente con compuerta de cobertura es `buscar_politica`, que es opcional para el modelo y además evalúa *su consulta*, no la solicitud. Es justo el juicio que el modelo no está en posición de emitir, porque solo ve las políticas que sí existen y nunca las que faltan.
+
+**Decisión.** `evaluarCobertura()` en `packages/contracts/src/coverage.ts` responde determinísticamente "¿el corpus legisla esta operación?". Tres causas, cada una con su política: `SECTOR_NO_RESOLUBLE` (POL-1.2, **literal**), `MONEDA_FUERA_DE_ALCANCE` y `INSTRUMENTO_FUERA_DE_ALCANCE` (POL-6.1, **inferencia declarada** con `literal: false`). Sin cobertura → `ESCALADO_A_COMITE`, monto y plazo a `null`, `PENDING_COMMITTEE`, aunque el modelo apruebe. Se conecta en `registrarDictamen`, por la misma vía que ya usaba la degradación por cita no verificable.
+
+**G1 no se relajó.** La distinción quedó explícita en el código: G1 responde *¿esta cita existe?* (integridad); cobertura responde *¿el corpus legisla esto?* (aplicabilidad). Una política puede existir, estar bien citada y no aplicar.
+
+**Respaldo, y su límite.** Ninguna política dice literalmente "una operación fuera del producto se escala". Lo que el corpus sí enuncia es **un** principio de escalamiento, tres veces con la misma forma —POL-1.2, POL-10.2, POL-10.3— y delimita el producto que legisla: POL-1.1 y POL-6.1 hablan del "producto de crédito PyME", y los siete topes están todos en quetzales. Extender el principio es una inferencia y se marca como tal. La alternativa —aprobar automáticamente una operación que ninguna política regula, con topes fijados en otra moneda— no tiene respaldo de ningún tipo.
+
+**Resultado.** CASE-08 escala correctamente. Controles verdes: solicitud cubierta no escala, rechazo por umbral sigue siendo rechazo, inyección de prompt no escala.
+
+**Trade-off.** La detección usa **reglas y vocabularios cerrados**, no embeddings: hay que mantener esas listas y un destino redactado de otra forma puede escapar. La dirección del error es la segura (falso negativo). Se quitaron «importación», «exportación» y «comercio exterior» del vocabulario de instrumentos porque describen lo que la empresa hace y no el producto que pide: una PyME que importa insumos con un crédito PyME ordinario está cubierta, y escalarla era un falso positivo. Además, 36 solicitudes del dataset son sector `otros` y ahora escalan — que es lo que POL-1.2 exige textualmente.
+
+---
+
+# FASE 4.1 — Chat de análisis
+
+## 2026-09-09 — El chat reutiliza el stream existente, no estrena backend
+
+**Contexto.** La pantalla funcionaba como dashboard y el enunciado pide explícitamente un chat con streaming y cancelación.
+
+**Problema.** Añadir un chat invita a construir un segundo camino: otro endpoint, otro estado, otra fuente de verdad. Eso habría duplicado la lógica de autoridad.
+
+**Decisión.** El chat es otra **proyección** del mismo análisis. El texto del analista viaja como `consulta` en el cuerpo del POST a `/analyze/stream`, campo que la ruta ya aceptaba desde FASE 3 y que el orquestador expone al agente como consulta del analista. Cero endpoints nuevos. La cancelación es el mismo `AbortController` → `reply.raw.on('close')` → `AbortSignal` hasta el proveedor. «Analizar solicitud» escribe en el hilo la consulta equivalente y dispara el mismo análisis.
+
+Del stream, el chat consume una **lista blanca** de tipos de evento; el resto se ignora aunque llegue.
+
+**Resultado.** Chat visible con hilo, input, Enviar y Cancelar durante la generación, sobre la infraestructura que ya existía.
+
+**Trade-off.** **Una consulta por ejecución**: cada mensaje dispara un análisis completo, sin historial conversacional multi-turno enviado al modelo. Un chat multi-turno real tocaría el orquestador, que estaba fuera de alcance.
+
+---
+
+## 2026-09-09 — El chat conversa; el progreso enumera (FASE 4.3)
+
+**Contexto.** La primera versión metía la lista de eventos dentro de la burbuja del asistente. La misma lista aparecía dos veces en pantalla y empujaba la respuesta hacia abajo.
+
+**Decisión.** Separación estricta: **CHAT** = conversación y respuesta; **PROGRESO DEL ANÁLISIS** = pasos de ejecución con su detalle técnico. Durante la generación la burbuja muestra solo un estado discreto —tres frases fijas elegidas por el último evento— y al terminar, la respuesta en prosa derivada del dictamen ya validado.
+
+**Resultado.** De los eventos SSE el chat usa únicamente el `type`. Todo el texto visible es constante escrita en el frontend o dato del dictamen validado, así que la garantía de "nada interno se filtra" dejó de depender de una lista blanca y pasó a ser estructural. La decisión que manda en la narrativa es la **confirmada**, no la del candidato: el chat no puede anunciar una aprobación que el panel dejó en comité.
+
+**Trade-off.** La burbuja ya no "crece" durante la generación; lo que avanza es el estado. A cambio, la respuesta no compite con el ruido de ejecución.
+
+---
+
+# FASE 4.2 y 4.4 — Dirección visual y densidad
+
+## 2026-09-09 — Polish sobre los componentes reales, no rediseño
+
+**Contexto.** La interfaz funcionaba pero se leía como demo técnica: exceso de bordes, mayúsculas y jerga de implementación en pantalla.
+
+**Decisión.** Paleta navy/azul de banca empresarial, jerarquía por tipografía antes que por cajas, color reservado para estados de decisión. Los textos de arquitectura salieron de la UI principal y quedaron en «Detalles de ejecución». Dictamen con tarjeta de veredicto teñida, banda ámbar de autorización humana y **políticas en acordeón** —la primera abierta, el resto a un clic— porque con nueve o diez citas verificadas la columna se volvía un muro de texto.
+
+**Resultado (4.4).** El chat entró en el primer viewport: los indicadores dejaron de ser un panel propio y pasaron a ser un bloque del resumen superior, «Operación» y «Perfil» se fusionaron en «Datos principales», y se bajó la densidad de forma moderada. El chat subió de y≈1019 a **y≈721**, y en el estado inicial a 1440×900 el título, el saludo y el input entran sin scroll.
+
+**Trade-off.** Con una respuesta larga en el hilo, el input queda bajo el pliegue. Meterlo exigiría limitar el hilo a ~150px y convertir la respuesta —el contenido principal— en un scroller de seis líneas. Se priorizó legibilidad.
+
+---
+
+## 2026-09-09 — Stitch como exploración visual, no como fuente funcional
+
+**Contexto.** Se usó Google Stitch para explorar dirección visual: tres propuestas de interfaz para el mismo producto.
+
+**Decisión.** Se tomó la **opción 3** como base (tres columnas, chat protagonista, resumen financiero compacto, dictamen con jerarquía fuerte, aviso ámbar, barra de confianza, políticas en acordeón, progreso al fondo) y de la **opción 1** solo la organización de los datos de solicitud y el tratamiento del bloque «Destino de fondos». La paleta se extrajo del código generado. Todo se adaptó a los componentes React existentes; no se copió una línea de la maqueta.
+
+**Revisión humana, y qué se rechazó.** Las maquetas inventaron funcionalidad que el sistema no tiene: firma digital, SHA-256, exportación a PDF, usuarios y roles ficticios, versiones normativas inventadas, indicadores de infraestructura (CORE-PROD, TLS, auditoría activa) y acciones inexistentes. Nada de eso se implementó. Se descartaron además dos ideas que se veían bien pero rompían reglas del diseño: mostrar umbrales normativos junto a cada indicador (obligaría a hardcodear política en el frontend) y cargar webfonts de Google.
+
+**Resultado.** Hay un test que renderiza las cuatro pantallas principales y falla si cualquiera de esos elementos inventados reaparece. La aplicación siguió siendo la fuente funcional de verdad; la maqueta fue solo una propuesta visual.
+
+**Aprendizaje.** El diseño asistido por IA produce artefactos verosímiles que mezclan dirección visual legítima con funcionalidad imaginada. Separar las dos cosas requiere una pasada humana explícita, y conviene dejarla escrita en un test para que la frontera no se erosione después.
+
+---
+
+# Evaluación final
+
+## 2026-09-09 — Cierre: 10/10 contra proveedor real
+
+| Parámetro | Valor |
+|---|---|
+| Modelo configurado / resuelto | `google/gemma-4-31b-it` |
+| Reasoning effort | `off` |
+| Seed de inferencia | `20260907` |
+| `finish_reason` | `tool_calls` |
+| Decision Accuracy | 10/10 |
+| Citation Accuracy | 10/10 |
+| Guardrail Checks | PASS |
+| **Total** | **10/10 PASS** |
+| Tokens | 74330 in / 4251 out · razonamiento 0 |
+| Costo | 0.009252 USD |
+
+`finish_reason: tool_calls` en el cierre confirma que la finalización ocurrió por la function call forzada de FASE 3.4, no por generación libre. `reasoning: 0` confirma que `OPENROUTER_REASONING_EFFORT=off` llegó al proveedor y fue respetado. Detalle por caso en [`evaluation/results/final-evaluation.md`](../evaluation/results/final-evaluation.md).
+
+Las corridas anteriores de esta bitácora —Liquid, Nemotron, dots— quedan como **historia de aprendizaje**: describen estados anteriores del sistema y los fallos que motivaron cada cambio. El estado final es el de esta entrada.

@@ -1,21 +1,26 @@
 import type { Indicadores, Solicitud } from '@credit/contracts';
 import { comoQuetzales, describirAnomalia, idCorto } from '../features/analysis/format.js';
 import { Badge } from './StatusBadge.js';
+import { IndicatorPanel } from './IndicatorPanel.js';
 
 interface Props {
   solicitud: Solicitud;
   indicadores: Indicadores | null;
-  /** Hallazgo de G5 sobre el texto del solicitante, si el análisis lo produjo. */
+  /** Hallazgo sobre el texto del solicitante, si el análisis lo produjo. */
   g5Detectado: boolean;
   patronesG5: string[];
 }
 
 /**
- * Datos de la solicitud.
+ * Resumen de la solicitud: datos principales, cifras reportadas, indicadores
+ * calculados y destino de fondos, en un solo panel.
+ *
+ * Los bloques se separan por titulo, no por lineas ni por paneles: menos ruido,
+ * la misma lectura, y el chat entra en la primera pantalla.
  *
  * `destino_fondos` se presenta SIEMPRE como dato aportado por el solicitante,
- * nunca como mensaje del sistema. Es la contraparte visual de G5: el analista
- * tiene que ver de un vistazo que ese texto no tiene autoridad.
+ * nunca como mensaje del sistema. La indicacion es discreta pero no opcional:
+ * el analista tiene que ver que ese texto no tiene autoridad.
  */
 export function ApplicationDetail({ solicitud, indicadores, g5Detectado, patronesG5 }: Props) {
   const montoAlto = Number(solicitud.monto_solicitado) > 250_000;
@@ -25,33 +30,53 @@ export function ApplicationDetail({ solicitud, indicadores, g5Detectado, patrone
     <section className="panel">
       <header className="panel__head">
         <h2>{solicitud.nombre_empresa}</h2>
-        <code className="muted">{idCorto(solicitud.id_solicitud)}</code>
+        <span className="muted small mono">{idCorto(solicitud.id_solicitud)}</span>
       </header>
 
-      <div className="badges">
-        {anomalias.length > 0 && <Badge tono="danger">Datos inconsistentes</Badge>}
-        {g5Detectado && <Badge tono="danger">Texto no confiable detectado</Badge>}
-        {montoAlto && <Badge tono="warn">Monto &gt; Q250,000</Badge>}
+      {(anomalias.length > 0 || g5Detectado || montoAlto) && (
+        <div className="badges">
+          {anomalias.length > 0 && <Badge tono="danger">Datos inconsistentes</Badge>}
+          {g5Detectado && <Badge tono="danger">Texto no confiable detectado</Badge>}
+          {montoAlto && <Badge tono="warn">Monto &gt; Q250,000</Badge>}
+        </div>
+      )}
+
+      <div className="bloque">
+        <div className="bloque__titulo">Datos principales</div>
+        <dl className="datos">
+          <div><dt>Monto solicitado</dt><dd>{comoQuetzales(solicitud.monto_solicitado)}</dd></div>
+          <div><dt>Plazo</dt><dd>{solicitud.plazo_meses} meses</dd></div>
+          <div><dt>Garantía</dt><dd>{solicitud.garantia_ofrecida}</dd></div>
+          <div><dt>Score de historial</dt><dd>{solicitud.score_historial} / 100</dd></div>
+          <div><dt>Sector</dt><dd>{solicitud.sector}</dd></div>
+          <div><dt>Meses de operación</dt><dd>{solicitud.meses_operacion}</dd></div>
+          <div><dt>Fecha</dt><dd>{solicitud.fecha_solicitud}</dd></div>
+        </dl>
       </div>
 
-      <dl className="datos">
-        <div><dt>Sector</dt><dd>{solicitud.sector}</dd></div>
-        <div><dt>Monto solicitado</dt><dd>{comoQuetzales(solicitud.monto_solicitado)}</dd></div>
-        <div><dt>Plazo</dt><dd>{solicitud.plazo_meses} meses</dd></div>
-        <div><dt>Meses de operación</dt><dd>{solicitud.meses_operacion}</dd></div>
-        <div><dt>Score de historial</dt><dd>{solicitud.score_historial} / 100</dd></div>
-        <div><dt>Garantía</dt><dd>{solicitud.garantia_ofrecida}</dd></div>
-        <div><dt>Ventas anuales</dt><dd>{comoQuetzales(solicitud.ventas_anuales)}</dd></div>
-        <div><dt>Utilidad neta</dt><dd>{comoQuetzales(solicitud.utilidad_neta)}</dd></div>
-        <div><dt>Activos totales</dt><dd>{comoQuetzales(solicitud.activos_totales)}</dd></div>
-        <div><dt>Pasivos totales</dt><dd>{comoQuetzales(solicitud.pasivos_totales)}</dd></div>
-        <div><dt>Deuda vigente anual</dt><dd>{comoQuetzales(solicitud.deuda_vigente_anual)}</dd></div>
-        <div><dt>Fecha</dt><dd>{solicitud.fecha_solicitud}</dd></div>
-      </dl>
+      <div className="bloque">
+        <div className="bloque__titulo">Cifras financieras reportadas</div>
+        <div className="metricas metricas--cifras">
+          {([
+            ['Ventas anuales', solicitud.ventas_anuales],
+            ['Utilidad neta', solicitud.utilidad_neta],
+            ['Activos totales', solicitud.activos_totales],
+            ['Pasivos totales', solicitud.pasivos_totales],
+            ['Deuda vigente anual', solicitud.deuda_vigente_anual],
+          ] as const).map(([etiqueta, valor]) => (
+            <div className="metrica" key={etiqueta}>
+              <span className="metrica__label">{etiqueta}</span>
+              <span className="metrica__valor">{comoQuetzales(valor)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <IndicatorPanel indicadores={indicadores} />
 
       {anomalias.length > 0 && (
         <div className="aviso aviso--danger">
-          <strong>Inconsistencias detectadas por el backend</strong>
+          <strong>Inconsistencias en los datos financieros</strong>
           <ul>
             {anomalias.map((a) => <li key={a}>{describirAnomalia(a)}</li>)}
           </ul>
@@ -61,9 +86,9 @@ export function ApplicationDetail({ solicitud, indicadores, g5Detectado, patrone
       <div className={`no-confiable ${g5Detectado ? 'no-confiable--alerta' : ''}`}>
         <div className="no-confiable__head">
           <span>Destino de fondos</span>
-          <Badge tono={g5Detectado ? 'danger' : 'neutral'}>
+          <span className={`chip-aviso ${g5Detectado ? 'chip-aviso--danger' : ''}`}>
             Texto proporcionado por el solicitante — no confiable
-          </Badge>
+          </span>
         </div>
         <blockquote>{solicitud.destino_fondos}</blockquote>
 
@@ -71,8 +96,8 @@ export function ApplicationDetail({ solicitud, indicadores, g5Detectado, patrone
           <div className="aviso aviso--danger">
             <strong>Se detectó contenido potencialmente manipulador.</strong>
             <p>
-              Fue tratado únicamente como dato. No modificó las herramientas disponibles, los
-              indicadores, los topes de monto ni la decisión.
+              Fue tratado únicamente como dato. No modificó los indicadores, los topes de monto
+              ni la decisión.
             </p>
             {patronesG5.length > 0 && (
               <details>

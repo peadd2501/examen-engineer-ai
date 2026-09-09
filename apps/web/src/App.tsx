@@ -1,16 +1,20 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Indicadores, Solicitud } from '@credit/contracts';
 import { ApplicationDetail } from './components/ApplicationDetail.js';
 import { ApplicationList } from './components/ApplicationList.js';
 import { AgentActivityTimeline } from './components/AgentActivityTimeline.js';
+import { ChatPanel } from './components/ChatPanel.js';
 import { DictamenPanel } from './components/DictamenPanel.js';
 import { ExecutionDetails } from './components/ExecutionDetails.js';
-import { IndicatorPanel } from './components/IndicatorPanel.js';
 import { MetricsPanel } from './components/MetricsPanel.js';
-import { Badge } from './components/StatusBadge.js';
 import { useAnalysisStream } from './hooks/useAnalysisStream.js';
 import { useApplications } from './hooks/useApplications.js';
 import { api, type RunDetalle, type VersionInfo } from './services/api.js';
+import {
+  CONSULTA_ANALISIS_POR_DEFECTO,
+  proyectarRespuesta,
+  type MensajeChat,
+} from './features/chat/transcript.js';
 import type { AnalisisResultado } from './types/view.js';
 
 type Tab = 'analisis' | 'metricas';
@@ -26,6 +30,12 @@ export function App() {
   const [tab, setTab] = useState<Tab>('analisis');
   const [refrescoMetricas, setRefrescoMetricas] = useState(0);
   const [runDetalle, setRunDetalle] = useState<RunDetalle | null>(null);
+
+  // Hilo del chat. Vive aqui porque es otra proyeccion del mismo analisis:
+  // el mensaje del asistente se va rellenando con los eventos del stream.
+  const [mensajes, setMensajes] = useState<MensajeChat[]>([]);
+  const [respondiendo, setRespondiendo] = useState<string | null>(null);
+  const contadorMensajes = useRef(0);
 
   useEffect(() => {
     api.version().then(setVersion).catch(() => setVersion(null));
@@ -53,6 +63,8 @@ export function App() {
     setSeleccionada(s);
     analisis.limpiar();
     setIndicadores(null);
+    setMensajes([]);
+    setRespondiendo(null);
 
     try {
       setIndicadores(await api.indicators(s.id_solicitud));
@@ -82,20 +94,51 @@ export function App() {
 
   const corriendo = analisis.estado === 'corriendo';
 
+  // Enviar por el chat y pulsar «Analizar solicitud» son la misma acción: el
+  // stream SSE existente, con el texto del analista como consulta.
+  const enviarConsulta = useCallback((texto: string) => {
+    if (!seleccionada || analisis.estado === 'corriendo') return;
+    contadorMensajes.current += 1;
+    const n = contadorMensajes.current;
+    const idAsistente = `a${n}`;
+    setMensajes((previos) => [
+      ...previos,
+      { id: `u${n}`, rol: 'usuario', texto },
+      { id: idAsistente, rol: 'asistente', texto: '', estado: 'streaming' },
+    ]);
+    setRespondiendo(idAsistente);
+    void analisis.analizar(seleccionada.id_solicitud, texto);
+  }, [analisis, seleccionada]);
+
+  // El mensaje en curso se reproyecta con cada evento: así la respuesta crece
+  // mientras llega el stream, en vez de aparecer entera al final.
+  const { eventos, estado, resultado, error } = analisis;
+  useEffect(() => {
+    if (!respondiendo) return;
+    setMensajes((previos) =>
+      previos.map((m) => (m.id === respondiendo ? proyectarRespuesta(m, { eventos, estado, resultado, error }) : m)),
+    );
+    if (estado !== 'corriendo') setRespondiendo(null);
+  }, [respondiendo, eventos, estado, resultado, error]);
+
   return (
     <div className="app">
       <header className="topbar">
-        <div>
+        <div className="topbar__titulo">
           <h1>Asistente de Originación PyME</h1>
-          <span className="muted small">El LLM propone · el software verifica · la base restringe · el humano confirma</span>
+          <span className="topbar__sub">Preanálisis y evaluación de solicitudes PyME</span>
         </div>
+        {/* Estados de servicio: informativos, no protagonistas. El punto de
+            color va acompañado del texto, nunca solo. */}
         <div className="topbar__estado">
-          <Badge tono={dbArriba === null ? 'neutral' : dbArriba ? 'ok' : 'danger'}>
-            API {dbArriba === null ? '…' : dbArriba ? 'conectada' : 'sin base'}
-          </Badge>
-          <Badge tono={version?.config.llm_configured ? 'ok' : 'warn'}>
-            {version?.config.model ?? 'modelo no configurado'}
-          </Badge>
+          <EstadoServicio
+            tono={dbArriba === null ? 'neutral' : dbArriba ? 'ok' : 'danger'}
+            texto={dbArriba === null ? 'Verificando conexión…' : dbArriba ? 'Conectado' : 'Base de datos no disponible'}
+          />
+          <EstadoServicio
+            tono={version?.config.llm_configured ? 'ok' : 'warn'}
+            texto={version?.config.llm_configured ? 'Servicio de análisis activo' : 'Servicio de análisis no disponible'}
+          />
         </div>
       </header>
 
@@ -151,7 +194,7 @@ export function App() {
                     type="button"
                     className="btn btn--primary"
                     disabled={corriendo}
-                    onClick={() => void analisis.analizar(seleccionada.id_solicitud)}
+                    onClick={() => enviarConsulta(CONSULTA_ANALISIS_POR_DEFECTO)}
                   >
                     {corriendo ? 'Analizando…' : 'Analizar solicitud'}
                   </button>
@@ -165,8 +208,16 @@ export function App() {
                   </button>
                 </div>
 
+                <ChatPanel
+                  mensajes={mensajes}
+                  eventos={analisis.eventos}
+                  corriendo={corriendo}
+                  habilitado
+                  onEnviar={enviarConsulta}
+                  onCancelar={analisis.cancelar}
+                />
+
                 <AgentActivityTimeline eventos={analisis.eventos} estado={analisis.estado} />
-                <IndicatorPanel indicadores={indicadores} />
               </>
             )}
           </div>
@@ -249,4 +300,14 @@ function reconstruirDesdeDictamen(fila: Record<string, unknown>): AnalisisResult
     lastFinishReason: null,
     iterationDiagnostics: [],
   };
+}
+
+/** Indicador de estado de servicio: punto + texto, discreto. */
+function EstadoServicio({ tono, texto }: { tono: 'ok' | 'warn' | 'danger' | 'neutral'; texto: string }) {
+  return (
+    <span className="estado-linea">
+      <span className={`estado-punto estado-punto--${tono}`} aria-hidden="true" />
+      {texto}
+    </span>
+  );
 }

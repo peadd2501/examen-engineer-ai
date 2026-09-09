@@ -1,6 +1,6 @@
 import type { AnalisisResultado, EstadoAnalisis, ErrorAnalisis } from '../types/view.js';
 import { comoQuetzales, describirError } from '../features/analysis/format.js';
-import { DecisionBadge, EstadoOperativoBadge, RiesgoBadge } from './StatusBadge.js';
+import { EstadoOperativoBadge, RiesgoBadge } from './StatusBadge.js';
 import { PolicyCitationList } from './PolicyCitationCard.js';
 import { CommitteePanel, HumanAuthorizationPanel } from './HumanAuthorizationPanel.js';
 
@@ -11,6 +11,25 @@ interface Props {
   onAutorizar: (idDictamen: string, accion: 'CONFIRMAR' | 'RECHAZAR') => Promise<void>;
   onReintentar: () => void;
 }
+
+/**
+ * Dictamen: la fuente visual del estado estructurado y persistido.
+ *
+ * Orden de lectura: decisión, riesgo, estado operativo, confianza, cifras,
+ * motivos y políticas citadas. El color se reserva para la decisión y el
+ * estado; el resto va en gris para que la jerarquía la marque el tamaño.
+ */
+const TONO_VEREDICTO: Record<string, string> = {
+  APROBADO: 'ok',
+  RECHAZADO: 'danger',
+  ESCALADO_A_COMITE: 'warn',
+};
+
+const TEXTO_VEREDICTO: Record<string, string> = {
+  APROBADO: 'APROBADO',
+  RECHAZADO: 'RECHAZADO',
+  ESCALADO_A_COMITE: 'ESCALADO A COMITÉ',
+};
 
 export function DictamenPanel({ resultado, estado, error, onAutorizar, onReintentar }: Props) {
   const dictamen = resultado?.dictamen ?? null;
@@ -44,26 +63,48 @@ export function DictamenPanel({ resultado, estado, error, onAutorizar, onReinten
 
       {dictamen && confirmacion && (
         <>
-          <div className="badges">
-            <DecisionBadge decision={confirmacion.decision} />
-            <RiesgoBadge nivel={dictamen.nivel_riesgo} />
-            <EstadoOperativoBadge estado={confirmacion.operational_status} />
+          {/* Veredicto: lo primero que se lee, con el color del resultado. */}
+          <div className={`veredicto-card veredicto-card--${TONO_VEREDICTO[confirmacion.decision] ?? 'neutral'}`}>
+            <div className="veredicto-card__top">
+              <span className="veredicto-card__texto">
+                {TEXTO_VEREDICTO[confirmacion.decision] ?? confirmacion.decision}
+              </span>
+              <RiesgoBadge nivel={dictamen.nivel_riesgo} />
+            </div>
+
+            {/* La banda ámbar ya dice que está pendiente de autorización; repetirlo
+                además como badge sería decir dos veces lo mismo en la misma tarjeta. */}
+            {confirmacion.requiere_autorizacion_humana ? (
+              <p className="aviso-humano">
+                <span aria-hidden="true">⚠</span> Pendiente de autorización humana
+              </p>
+            ) : (
+              <div className="veredicto__meta">
+                <EstadoOperativoBadge estado={confirmacion.operational_status} />
+              </div>
+            )}
+
+            <div className="confianza">
+              <span>Confianza</span>
+              <div className="confianza__barra">
+                <div className="confianza__fill" style={{ width: `${Math.round(dictamen.confianza * 100)}%` }} />
+              </div>
+              <span>{(dictamen.confianza * 100).toFixed(0)} %</span>
+            </div>
           </div>
 
-          <div className="confianza">
-            <div className="confianza__barra">
-              <div className="confianza__fill" style={{ width: `${Math.round(dictamen.confianza * 100)}%` }} />
+          <div className="metricas metricas--dictamen">
+            <div className="metrica">
+              <span className="metrica__label">Monto recomendado</span>
+              <span className="metrica__valor">{comoQuetzales(dictamen.monto_recomendado)}</span>
             </div>
-            <span>Confianza {(dictamen.confianza * 100).toFixed(0)} %</span>
+            <div className="metrica">
+              <span className="metrica__label">Plazo recomendado</span>
+              <span className="metrica__valor">
+                {dictamen.plazo_recomendado_meses === null ? 'N/D' : `${dictamen.plazo_recomendado_meses} meses`}
+              </span>
+            </div>
           </div>
-
-          <dl className="datos">
-            <div><dt>Monto recomendado</dt><dd>{comoQuetzales(dictamen.monto_recomendado)}</dd></div>
-            <div>
-              <dt>Plazo recomendado</dt>
-              <dd>{dictamen.plazo_recomendado_meses === null ? 'N/D' : `${dictamen.plazo_recomendado_meses} meses`}</dd>
-            </div>
-          </dl>
 
           <h3>Motivos</h3>
           <ul className="motivos">{dictamen.motivos.map((m, i) => <li key={i}>{m}</li>)}</ul>

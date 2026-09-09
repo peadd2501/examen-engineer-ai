@@ -42,7 +42,11 @@ export function useAnalysisStream() {
     setEstado('idle');
   }, []);
 
-  const analizar = useCallback(async (idSolicitud: string) => {
+  /**
+   * `consulta` es el texto que el analista escribio en el chat. Va al mismo
+   * endpoint SSE, que ya aceptaba una consulta del analista desde FASE 3.
+   */
+  const analizar = useCallback(async (idSolicitud: string, consulta?: string) => {
     // El cerrojo se toma antes de cualquier await: dos clicks seguidos, o un
     // click mientras el estado de React todavia no se propago, no lanzan dos
     // analisis. El servidor cobra por cada uno.
@@ -109,6 +113,7 @@ export function useAnalysisStream() {
           onDone: (d) => setDiagnostico(d),
         },
         controller.signal,
+        consulta,
       );
     } finally {
       const cancelado = controller.signal.aborted;

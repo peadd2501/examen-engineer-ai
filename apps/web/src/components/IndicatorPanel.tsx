@@ -2,19 +2,24 @@ import type { Indicadores } from '@credit/contracts';
 import { comoMeses, comoPorcentaje, comoVeces, describirAnomalia } from '../features/analysis/format.js';
 
 /**
- * Indicadores autoritativos.
+ * Indicadores calculados.
  *
- * El frontend NO calcula nada: todos estos valores vienen de la capa
- * determinista del backend (decimal.js). `null` significa "no calculable con
- * los datos dados" y se muestra como N/D, que es distinto de cero.
+ * El frontend NO calcula nada: todos estos valores llegan ya calculados.
+ * `null` significa "no calculable con los datos dados" y se muestra como N/D,
+ * que es distinto de cero.
+ *
+ * Es un BLOQUE, no un panel: vive dentro del resumen de la solicitud, junto a
+ * los datos de los que sale. Tenerlo como panel aparte costaba encabezado,
+ * bordes y separación propios —casi cien píxeles— y empujaba el chat fuera de
+ * la primera pantalla sin aportar ninguna separación conceptual real.
  */
 export function IndicatorPanel({ indicadores }: { indicadores: Indicadores | null }) {
   if (!indicadores) {
     return (
-      <section className="panel">
-        <header className="panel__head"><h2>Indicadores calculados</h2></header>
-        <p className="muted pad">Selecciona una solicitud.</p>
-      </section>
+      <div className="bloque">
+        <div className="bloque__titulo">Indicadores calculados</div>
+        <p className="muted small">Selecciona una solicitud.</p>
+      </div>
     );
   }
 
@@ -27,27 +32,22 @@ export function IndicatorPanel({ indicadores }: { indicadores: Indicadores | nul
   ];
 
   return (
-    <section className="panel">
-      <header className="panel__head">
-        <h2>Indicadores calculados</h2>
-        <span className="muted" title="indicator_calc_version">v{indicadores.calculation_version}</span>
-      </header>
+    <div className="bloque">
+      <div className="bloque__titulo">
+        Indicadores calculados
+        <span className="bloque__nota">
+          calculados automáticamente a partir de la información financiera registrada
+        </span>
+      </div>
 
-      <table className="tabla">
-        <tbody>
-          {filas.map((f) => (
-            <tr key={f.etiqueta}>
-              <th>{f.etiqueta}</th>
-              <td className={f.valor === 'N/D' ? 'nd' : 'num'}>{f.valor}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <p className="muted small">
-        Calculados por el backend con aritmética decimal. El asistente los recibe como dato
-        autoritativo y no puede modificarlos.
-      </p>
+      <div className="metricas">
+        {filas.map((f) => (
+          <div className="metrica" key={f.etiqueta}>
+            <span className="metrica__label">{f.etiqueta}</span>
+            <span className={f.valor === 'N/D' ? 'metrica__valor nd' : 'metrica__valor'}>{f.valor}</span>
+          </div>
+        ))}
+      </div>
 
       {indicadores.anomalias.length > 0 && (
         <div className="aviso aviso--danger">
@@ -55,6 +55,6 @@ export function IndicatorPanel({ indicadores }: { indicadores: Indicadores | nul
           <ul>{indicadores.anomalias.map((a) => <li key={a}>{describirAnomalia(a)}</li>)}</ul>
         </div>
       )}
-    </section>
+    </div>
   );
 }

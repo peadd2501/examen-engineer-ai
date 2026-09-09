@@ -43,5 +43,5 @@ const ESTADO_OPERATIVO: Record<string, { etiqueta: string; tono: Tono }> = {
 
 export function EstadoOperativoBadge({ estado }: { estado: string }) {
   const info = ESTADO_OPERATIVO[estado] ?? { etiqueta: estado, tono: 'neutral' as Tono };
-  return <Badge tono={info.tono} title={`operational_status = ${estado}`}>{info.etiqueta}</Badge>;
+  return <Badge tono={info.tono}>{info.etiqueta}</Badge>;
 }

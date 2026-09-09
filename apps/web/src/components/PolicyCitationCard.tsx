@@ -3,19 +3,23 @@ import type { CitaPolitica } from '../types/view.js';
 /**
  * Cita de política.
  *
- * El texto es literal del corpus: lo trae el backend desde la base de datos,
- * no lo escribe el modelo ni el frontend. Es la evidencia de que la decisión
- * está respaldada por una política verificable.
+ * El texto es literal del reglamento vigente: lo recupera el sistema desde el
+ * corpus, no lo redacta el asistente ni el frontend. Es la evidencia de que la
+ * decisión está respaldada por una política verificable.
+ *
+ * Acordeon: la primera queda abierta para que el texto exacto este a la vista
+ * sin pedirlo, y el resto a un clic. Con nueve o diez citas verificadas, dejarlas
+ * todas desplegadas convertia la columna en un muro de texto.
  */
-export function PolicyCitationCard({ cita }: { cita: CitaPolitica }) {
+export function PolicyCitationCard({ cita, abierta = false }: { cita: CitaPolitica; abierta?: boolean }) {
   return (
-    <article className="cita">
-      <header className="cita__head">
+    <details className="cita" open={abierta}>
+      <summary>
         <code className="cita__id">{cita.id_politica}</code>
         <span className="cita__seccion">Sección {cita.seccion}</span>
-      </header>
+      </summary>
       <blockquote className="cita__texto">{cita.texto_literal}</blockquote>
-    </article>
+    </details>
   );
 }
 
@@ -34,11 +38,9 @@ export function PolicyCitationList({ citas }: { citas: CitaPolitica[] }) {
 
   return (
     <div className="citas">
-      <p className="muted small">
-        Texto literal del corpus vigente, recuperado por el backend. El asistente solo indicó
-        qué políticas aplican; no redactó estas citas.
-      </p>
-      {citas.map((c) => <PolicyCitationCard key={`${c.id_politica}-${c.seccion}`} cita={c} />)}
+      {citas.map((c, i) => (
+        <PolicyCitationCard key={`${c.id_politica}-${c.seccion}`} cita={c} abierta={i === 0} />
+      ))}
     </div>
   );
 }

@@ -376,3 +376,82 @@ test('un fallo de dominio no se confunde con API inalcanzable', () => {
   const html = render(resultado(), 'error', { code: 'OUTPUT_TOKEN_LIMIT_EXCEEDED', mensaje: 'x' });
   assert.ok(!html.includes('No se pudo establecer la conexión'), 'no debe degradarse a error de red');
 });
+
+// --- referencia visual: lo que se adopta y lo que NO ------------------------
+//
+// El rediseño se guió por unas maquetas generadas con Stitch. Las maquetas
+// inventaron acciones y metadatos que este sistema no tiene. Este bloque fija
+// esa frontera: si alguien copia un elemento inventado, el test lo caza.
+
+import { App } from '../App.js';
+
+/** Elementos que aparecían en las maquetas y NO existen en la aplicación. */
+const INVENTADOS = [
+  'Exportar Dictamen', 'firma digital', 'Firmado digitalmente', 'SHA-256',
+  'M. Rodriguez', 'Analista Senior', 'Motor PyME', 'Reglas v2.4', 'CORE-PROD',
+  'TLS', 'Auditoría activa', 'Modelo auditado', 'Banca Empresarial',
+  'Rechazar preliminar', 'Reiniciar sesión', 'Elevar a Comité', 'Dictamen Preliminar',
+  'Sistema Conectado', 'Garantía REAL', 'Distribuidora Central', 'Soluciones Digitales GT',
+];
+
+test('la UI no incorpora los elementos inventados por la maqueta', () => {
+  const pantallas = [
+    renderToStaticMarkup(<App />),
+    renderToStaticMarkup(<ApplicationDetail solicitud={SOLICITUD} indicadores={INDICADORES} g5Detectado={false} patronesG5={[]} />),
+    render(resultado()),
+    renderToStaticMarkup(<IndicatorPanel indicadores={INDICADORES} />),
+  ];
+  for (const html of pantallas) {
+    for (const inventado of INVENTADOS) {
+      assert.ok(!html.includes(inventado), `«${inventado}» no existe en esta aplicación`);
+    }
+  }
+});
+
+test('las cifras financieras se leen como mosaico compacto', () => {
+  const html = renderToStaticMarkup(
+    <ApplicationDetail solicitud={SOLICITUD} indicadores={INDICADORES} g5Detectado={false} patronesG5={[]} />,
+  );
+  assert.ok(html.includes('Cifras financieras reportadas'));
+  assert.ok(html.includes('metricas--cifras'), 'mosaico de importes, no lista vertical');
+  // Los cinco valores reportados siguen visibles, sin recortes.
+  for (const etiqueta of ['Ventas anuales', 'Utilidad neta', 'Activos totales', 'Pasivos totales', 'Deuda vigente anual']) {
+    assert.ok(html.includes(etiqueta), `falta ${etiqueta}`);
+  }
+});
+
+test('el aviso del destino de fondos es visible pero no domina', () => {
+  const html = renderToStaticMarkup(
+    <ApplicationDetail solicitud={SOLICITUD} indicadores={INDICADORES} g5Detectado={false} patronesG5={[]} />,
+  );
+  assert.ok(html.includes('Texto proporcionado por el solicitante — no confiable'));
+  assert.ok(html.includes('chip-aviso'), 'va como etiqueta, no como bloque de alerta');
+  assert.ok(!html.includes('chip-aviso--danger'), 'sin hallazgo no se pinta de rojo');
+
+  const conG5 = renderToStaticMarkup(
+    <ApplicationDetail solicitud={SOLICITUD} indicadores={INDICADORES} g5Detectado patronesG5={['INSTRUCTION_OVERRIDE']} />,
+  );
+  assert.ok(conG5.includes('chip-aviso--danger'), 'con hallazgo sí sube de tono');
+});
+
+test('el dictamen abre con el veredicto y el aviso ambar de autorización', () => {
+  const html = render(resultado({}, {}, { operational_status: 'PENDING_AUTHORIZATION', requiere_autorizacion_humana: true }));
+  assert.ok(html.includes('veredicto-card--ok'), 'tarjeta con el color del resultado');
+  assert.ok(html.includes('Pendiente de autorización humana'), 'la banda ámbar');
+  assert.ok(html.includes('aviso-humano'));
+  assert.ok(html.includes('Confirmar recomendación'), 'y la acción real sigue disponible más abajo');
+
+  const firme = render(resultado());
+  assert.ok(!firme.includes('aviso-humano'), 'un dictamen firme no muestra la banda');
+});
+
+test('las políticas citadas forman un acordeón con la primera abierta', () => {
+  const dos = [CITA, { id_politica: 'POL-3.1', seccion: '3.1 Score mínimo', texto_literal: 'El score debe ser mayor o igual a 60 puntos.' }];
+  const html = render(resultado({}, { politicas_citadas: dos }));
+
+  assert.equal((html.match(/<details class="cita"/g) ?? []).length, 2, 'cada cita es un acordeón');
+  assert.equal((html.match(/<details class="cita" open/g) ?? []).length, 1, 'solo la primera abierta');
+  // Ninguna cita pierde su texto literal: colapsada sigue en el documento.
+  assert.ok(html.includes('no debe exceder 0.70'));
+  assert.ok(html.includes('mayor o igual a 60 puntos'));
+});

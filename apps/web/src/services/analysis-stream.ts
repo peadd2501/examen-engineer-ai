@@ -1,6 +1,5 @@
 import { AgentEventSchema, type AgentEvent } from '@credit/contracts';
-
-const BASE_URL: string = import.meta.env['VITE_API_URL'] ?? 'http://localhost:3001';
+import { BASE_URL } from './base-url.js';
 
 /**
  * Cliente SSE del analisis.
@@ -45,10 +44,17 @@ export interface StreamHandlers {
   onDone: (diagnostico: StreamDiagnostico) => void;
 }
 
+/**
+ * `consulta` es el texto que el analista escribio en el chat. Viaja como
+ * `consulta` en el cuerpo del POST, que la ruta ya aceptaba desde FASE 3 y
+ * expone al agente como "consulta del analista". El chat NO estrena endpoint:
+ * usa este mismo stream.
+ */
 export async function analizarConStream(
   idSolicitud: string,
   handlers: StreamHandlers,
   signal: AbortSignal,
+  consulta?: string,
 ): Promise<void> {
   const diagnostico: StreamDiagnostico = { framesRecibidos: 0, framesInvalidos: 0, eventosInvalidos: 0 };
 
@@ -57,7 +63,10 @@ export async function analizarConStream(
     response = await fetch(`${BASE_URL}/api/applications/${idSolicitud}/analyze/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify({ session_id: `web-${Date.now()}` }),
+      body: JSON.stringify({
+        session_id: `web-${Date.now()}`,
+        ...(consulta && consulta.trim() !== '' ? { consulta: consulta.trim().slice(0, 500) } : {}),
+      }),
       signal,
     });
   } catch (error) {

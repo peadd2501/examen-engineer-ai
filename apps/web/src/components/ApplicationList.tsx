@@ -1,7 +1,6 @@
 import type { Solicitud } from '@credit/contracts';
 import { codigoFixture, type FiltroSolicitudes } from '../hooks/useApplications.js';
-import { comoQuetzales, idCorto } from '../features/analysis/format.js';
-import { Badge } from './StatusBadge.js';
+import { comoQuetzales } from '../features/analysis/format.js';
 
 interface Props {
   visibles: Solicitud[];
@@ -21,12 +20,19 @@ const FILTROS: Array<{ id: FiltroSolicitudes; etiqueta: string }> = [
   { id: 'todas', etiqueta: 'Todas' },
 ];
 
+/**
+ * Listado de solicitudes.
+ *
+ * Jerarquia: nombre o codigo del caso primero, monto a la derecha, y el resto
+ * de metadatos en una linea secundaria de menor peso. Las marcas (monto alto,
+ * caso adversarial) son etiquetas discretas, no badges de color saturado.
+ */
 export function ApplicationList(p: Props) {
   return (
     <section className="panel panel--list">
       <header className="panel__head">
         <h2>Solicitudes</h2>
-        <span className="muted">{p.visibles.length}</span>
+        <span className="muted small">{p.visibles.length}</span>
       </header>
 
       <div className="filtros">
@@ -35,6 +41,7 @@ export function ApplicationList(p: Props) {
             key={f.id}
             type="button"
             className={`chip ${p.filtro === f.id ? 'chip--on' : ''}`}
+            aria-pressed={p.filtro === f.id}
             onClick={() => p.onFiltro(f.id)}
           >
             {f.etiqueta}
@@ -45,6 +52,7 @@ export function ApplicationList(p: Props) {
       <input
         className="input"
         placeholder="Buscar por empresa o sector"
+        aria-label="Buscar solicitudes"
         value={p.busqueda}
         onChange={(e) => p.onBusqueda(e.target.value)}
       />
@@ -55,23 +63,28 @@ export function ApplicationList(p: Props) {
       <ul className="lista">
         {p.visibles.map((s) => {
           const codigo = codigoFixture(s.nombre_empresa);
+          const adversarial = codigo?.startsWith('ADV-') ?? false;
           const montoAlto = Number(s.monto_solicitado) > 250_000;
+          const elegida = p.seleccionada === s.id_solicitud;
           return (
             <li key={s.id_solicitud}>
               <button
                 type="button"
-                className={`fila ${p.seleccionada === s.id_solicitud ? 'fila--on' : ''}`}
+                className={`fila ${elegida ? 'fila--on' : ''}`}
+                aria-current={elegida ? 'true' : undefined}
                 onClick={() => p.onSeleccionar(s)}
               >
                 <div className="fila__top">
-                  <strong>{codigo ?? s.nombre_empresa.slice(0, 26)}</strong>
-                  <code className="muted">{idCorto(s.id_solicitud)}</code>
+                  <span className="fila__nombre">{codigo ?? s.nombre_empresa.slice(0, 24)}</span>
+                  <span className="fila__monto">{comoQuetzales(s.monto_solicitado)}</span>
                 </div>
                 <div className="fila__sub">
-                  {s.sector} · {comoQuetzales(s.monto_solicitado)} · {s.meses_operacion} meses
+                  <span>{s.sector}</span>
+                  <span>·</span>
+                  <span>{s.meses_operacion} meses</span>
+                  {montoAlto && <span className="marca marca--warn">Autorización</span>}
+                  {adversarial && <span className="marca marca--danger">Adversarial</span>}
                 </div>
-                <div className="fila__sub muted">{s.fecha_solicitud}</div>
-                {montoAlto && <Badge tono="warn">&gt; Q250,000</Badge>}
               </button>
             </li>
           );

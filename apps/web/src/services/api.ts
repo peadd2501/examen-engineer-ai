@@ -1,7 +1,6 @@
 import type { Indicadores, MetricasCartera, Solicitud } from '@credit/contracts';
 import type { AnalisisResultado } from '../types/view.js';
-
-const BASE_URL: string = import.meta.env['VITE_API_URL'] ?? 'http://localhost:3001';
+import { BASE_URL } from './base-url.js';
 
 export class ApiError extends Error {
   constructor(readonly code: string, message: string, readonly status: number) {

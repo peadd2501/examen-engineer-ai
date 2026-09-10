@@ -258,12 +258,11 @@ interface DictamenPersistido {
 }
 
 /**
- * Reconstruye la vista a partir del último dictamen persistido, para que al
- * volver a una solicitud ya analizada no se pierda el resultado.
+ * Reconstruye la vista desde el último dictamen persistido, para no perder el
+ * resultado al volver a una solicitud ya analizada.
  *
- * Los campos de ejecución quedan en `null`, no en cero: pertenecen al
- * `agent_run` y se recuperan aparte con `GET /api/runs/:id` usando el
- * `agent_run_id` de esta fila. Si ese run no existe, la UI muestra N/D.
+ * Los campos de ejecución quedan en `null`, no en cero: pertenecen al `agent_run`
+ * y se recuperan con `GET /api/runs/:id`. Si ese run no existe, la UI muestra N/D.
  */
 function reconstruirDesdeDictamen(fila: Record<string, unknown>): AnalisisResultado {
   const d = fila as DictamenPersistido;

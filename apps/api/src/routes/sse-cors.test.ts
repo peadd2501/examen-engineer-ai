@@ -8,13 +8,11 @@ import { config } from '../config.js';
 /**
  * Regresion de CORS sobre la respuesta SSE.
  *
- * El bug: `reply.hijack()` descarta los headers que @fastify/cors habia puesto
- * con reply.header(), porque esos viven en el objeto reply y se vuelcan al
- * socket recien al enviar. El preflight OPTIONS seguia respondiendo 204, asi
- * que desde el servidor todo parecia bien; el navegador recibia los eventos y
- * los descartaba con "CORS Missing Allow Origin".
- *
- * Un OPTIONS 204 no prueba CORS: hay que verificar la respuesta REAL.
+ * `reply.hijack()` descarta los headers que @fastify/cors habia puesto con
+ * reply.header(). El preflight OPTIONS seguia respondiendo 204, asi que desde el
+ * servidor todo parecia bien mientras el navegador descartaba los eventos con
+ * "CORS Missing Allow Origin". Un OPTIONS 204 no prueba CORS: hay que verificar
+ * la respuesta REAL.
  */
 const ORIGEN = 'http://localhost:5173';
 let app: FastifyInstance;

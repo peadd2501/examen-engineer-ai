@@ -4,14 +4,12 @@ import { comoMeses, comoPorcentaje, comoVeces, describirAnomalia } from '../feat
 /**
  * Indicadores calculados.
  *
- * El frontend NO calcula nada: todos estos valores llegan ya calculados.
- * `null` significa "no calculable con los datos dados" y se muestra como N/D,
- * que es distinto de cero.
+ * El frontend NO calcula nada. `null` significa "no calculable con los datos
+ * dados" y se muestra como N/D, que es distinto de cero.
  *
- * Es un BLOQUE, no un panel: vive dentro del resumen de la solicitud, junto a
- * los datos de los que sale. Tenerlo como panel aparte costaba encabezado,
- * bordes y separación propios —casi cien píxeles— y empujaba el chat fuera de
- * la primera pantalla sin aportar ninguna separación conceptual real.
+ * Es un BLOQUE dentro del resumen, no un panel aparte: como panel costaba casi
+ * cien píxeles en encabezado y bordes, y empujaba el chat fuera de la primera
+ * pantalla sin aportar separación conceptual real.
  */
 export function IndicatorPanel({ indicadores }: { indicadores: Indicadores | null }) {
   if (!indicadores) {

@@ -4,10 +4,9 @@ import type { EstadoAnalisis } from '../types/view.js';
 /**
  * Progreso del análisis, paso a paso.
  *
- * Secundario al chat: compacto, sin fondo propio y con marcas simples. Muestra
- * progreso, acciones y fuentes. No muestra razonamiento, instrucciones internas
- * ni el payload completo de las consultas: solo nombre amigable, estado y
- * duración.
+ * Secundario al chat: compacto y con marcas simples. Muestra progreso, acciones
+ * y fuentes; nunca razonamiento, instrucciones internas ni el payload completo
+ * de las consultas.
  */
 
 type TonoPaso = 'ok' | 'activo' | 'error' | 'aviso';

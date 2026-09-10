@@ -28,11 +28,9 @@ const EnvSchema = z.object({
   /**
    * Esfuerzo de razonamiento que se pide al proveedor.
    *
-   * 'none' PIDE explicitamente que no razone (se envia reasoning.effort=none).
-   * 'off'  omite el campo por completo, para modelos que no lo soportan.
-   * Son cosas distintas: la primera es una instruccion, la segunda es silencio.
-   *
-   * No se decide por modelo en codigo: es configuracion.
+   * 'none' PIDE explicitamente que no razone; 'off' omite el campo, para modelos
+   * que no lo soportan. Son cosas distintas: instruccion contra silencio. No se
+   * decide por modelo en codigo: es configuracion.
    */
   OPENROUTER_REASONING_EFFORT: z.enum(['off', 'none', 'low', 'medium', 'high']).default('none'),
 });

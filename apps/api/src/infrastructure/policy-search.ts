@@ -9,16 +9,12 @@ import {
 } from '@credit/contracts';
 
 /**
- * Recuperacion de politicas. Determinista y auditable, sin embeddings.
- *
- *   consulta
- *     -> normalizacion (lexemas via to_tsvector, en la propia base)
- *     -> filtro opcional por categoria
- *     -> FTS con semantica OR (candidatos)
- *     -> compuerta de cobertura de terminos  <-- decide SI aplica
- *     -> ranking ts_rank_cd                  <-- decide CUANTO importa
- *     -> top_k
- *     -> expansion de relaciones regla <-> excepcion
+ * Recuperacion de politicas. Determinista y auditable, sin embeddings:
+ *   consulta -> lexemas (to_tsvector en la propia base)
+ *   -> filtro opcional por categoria -> FTS con semantica OR
+ *   -> compuerta de cobertura de terminos  <-- decide SI aplica
+ *   -> ranking ts_rank_cd                  <-- decide CUANTO importa
+ *   -> top_k -> expansion de relaciones regla <-> excepcion
  */
 
 /** Piso de relevancia. Descarta coincidencias marginales. */
@@ -27,12 +23,11 @@ export const MIN_RELEVANCE = 0.01;
 /**
  * Fraccion minima de lexemas de la consulta que la politica debe contener.
  *
- * Es la compuerta que hace posible responder "no hay politica aplicable".
- * Con semantica OR, una consulta como "carta de credito para importacion en
- * euros" hace match con la politica de cobertura de servicio de deuda solo
- * porque comparten las palabras "credito" y "cobertura": 2 de 7 terminos.
- * Un umbral sobre ts_rank_cd no separa ese caso (0.64) de un acierto legitimo;
- * la cobertura de terminos si (0.29 contra 1.00).
+ * Es la compuerta que hace posible responder "no hay politica aplicable": con
+ * semantica OR, "carta de credito para importacion en euros" hace match con la
+ * politica de cobertura de deuda solo por compartir dos de siete terminos. Un
+ * umbral sobre ts_rank_cd no separa ese caso (0.64); la cobertura si (0.29
+ * contra 1.00).
  */
 export const MIN_COVERAGE = 0.5;
 
@@ -58,12 +53,9 @@ interface RelatedRow {
 
 /**
  * La normalizacion ocurre en PostgreSQL: `to_tsvector('spanish', ...)` hace
- * stemming y elimina stopwords, y los lexemas resultantes se unen con OR.
- * No se usa `plainto_tsquery` porque une los terminos con AND: una consulta de
- * seis palabras no encontraria absolutamente nada.
- *
- * `tsvector_to_array` permite contar cuantos lexemas de la consulta estan
- * realmente en la politica, sin re-stemming ni ambiguedad.
+ * stemming y elimina stopwords, y los lexemas se unen con OR. No se usa
+ * `plainto_tsquery` porque une con AND: una consulta de seis palabras no
+ * encontraria nada. `tsvector_to_array` permite contar lexemas sin re-stemming.
  */
 const SQL_HITS = `
 WITH lexemas AS (

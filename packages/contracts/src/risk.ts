@@ -6,48 +6,22 @@ import type { Indicadores } from './indicators.js';
 /**
  * Nivel de riesgo autoritativo.
  *
- * MOTIVO DEL CAMBIO (FASE 3.3): `nivel_riesgo` lo generaba libremente el modelo
- * y alimentaba G4. En CASE-09 el modelo devolvio ALTO sin ningun respaldo del
- * corpus —la solicitud pide Q120,000 y tiene score 80— y G4 se activo
- * correctamente sobre un dato inventado. Un campo que decide si hace falta
- * firma humana no puede salir del modelo.
+ * Antes lo generaba libremente el modelo y alimentaba G4: en CASE-09 devolvio
+ * ALTO sin ningun respaldo del corpus y G4 se activo sobre un dato inventado. Un
+ * campo que decide si hace falta firma humana no puede salir del modelo, asi que
+ * ahora se calcula aqui, puro y deterministico, y cada condicion cita la politica
+ * que la sustenta.
  *
- * Ahora se calcula aqui, de forma pura y deterministica, sobre los indicadores
- * autoritativos y los datos estructurados de la solicitud. Cada condicion cita
- * la politica que la sustenta.
+ * Un incumplimiento de umbral es CAUSAL DE RECHAZO, no nivel de riesgo:
+ * confundirlos haria que toda solicitud rechazada necesitara firma, porque
+ * POL-8.2 obliga a autorizacion ante riesgo ALTO. Los incumplimientos se
+ * registran en `incumplimientos` para trazabilidad, pero no elevan el nivel.
  *
- * === QUE ES UN NIVEL DE RIESGO Y QUE NO ===
- *
- * Un incumplimiento de umbral (endeudamiento sobre 0.70, score bajo 60,
- * antiguedad insuficiente) es una CAUSAL DE RECHAZO, no un nivel de riesgo.
- * Son cosas distintas y confundirlas tiene una consecuencia concreta: POL-8.2
- * obliga a autorizacion humana ante riesgo ALTO, asi que marcar ALTO cada
- * rechazo haria que toda solicitud rechazada necesitara firma de un analista.
- * El corpus no dice eso en ninguna parte.
- *
- * La decision (aprobar, rechazar, escalar) sale de contrastar los indicadores
- * contra las politicas. El nivel de riesgo es otra cosa, y el corpus solo lo
- * define en dos situaciones. Los incumplimientos se registran igual, en
- * `incumplimientos`, para trazabilidad; simplemente no elevan el nivel.
- *
- * === LIMITACION DECLARADA: no se emite BAJO ===
- *
- * El corpus vigente (30 politicas) contiene UNA sola politica que asigna un
- * nivel de riesgo explicito: POL-3.2, que clasifica como ALTO el score entre 60
- * y 69. No existe ninguna politica que defina condiciones suficientes para
- * afirmar riesgo BAJO. (El borrador de 35 politicas tenia una POL-3.3 de "score
- * preferente" que hacia justamente eso, pero se elimino al recortar el corpus
- * al rango 25-30 pedido en FASE 2.)
- *
- * Inventar un umbral de BAJO seria exactamente lo que este cambio busca
- * eliminar: un numero sin respaldo decidiendo sobre autorizacion humana. Asi
- * que el sistema emite MEDIO o ALTO, y MEDIO es el valor por defecto cuando no
- * se cumple ninguna condicion de ALTO. Es la lectura conservadora: ante
- * ausencia de norma, no se afirma riesgo bajo.
- *
- * Consecuencia practica: ninguna aprobacion queda etiquetada BAJO. No afecta a
- * G4 (solo ALTO lo dispara) ni a los expected results de la evaluacion, que no
- * fijan `nivel_riesgo`. Ver docs/engineering-notes.md para la alternativa.
+ * LIMITACION DECLARADA: no se emite BAJO. La unica politica que asigna nivel
+ * explicito es POL-3.2 (ALTO por score 60-69) y ninguna define condiciones
+ * suficientes para BAJO; inventar ese umbral seria justo lo que este cambio
+ * elimina. MEDIO es el valor por defecto. No afecta a G4 —solo ALTO lo dispara—
+ * ni a los expected results. Ver docs/engineering-notes.md.
  */
 
 export interface FactorRiesgo {

@@ -3,13 +3,11 @@ import type { CitaPolitica } from '../types/view.js';
 /**
  * Cita de política.
  *
- * El texto es literal del reglamento vigente: lo recupera el sistema desde el
- * corpus, no lo redacta el asistente ni el frontend. Es la evidencia de que la
- * decisión está respaldada por una política verificable.
+ * El texto es literal del reglamento vigente y lo recupera el sistema desde el
+ * corpus: no lo redacta el asistente ni el frontend.
  *
- * Acordeon: la primera queda abierta para que el texto exacto este a la vista
- * sin pedirlo, y el resto a un clic. Con nueve o diez citas verificadas, dejarlas
- * todas desplegadas convertia la columna en un muro de texto.
+ * Acordeón con la primera abierta: con nueve o diez citas verificadas, dejarlas
+ * todas desplegadas convertía la columna en un muro de texto.
  */
 export function PolicyCitationCard({ cita, abierta = false }: { cita: CitaPolitica; abierta?: boolean }) {
   return (

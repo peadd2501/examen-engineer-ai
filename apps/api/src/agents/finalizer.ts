@@ -7,25 +7,14 @@ import type { ChatMessage, ChatRequest, ChatResponse } from './openrouter-client
 /**
  * FINALIZER — finalizacion estructurada mediante function call forzada.
  *
- * Motivo (FASE 3.4): con `response_format` el modelo elegia cuando y como
- * cerrar. Con Liquid, CASE-09 gastaba 5000 tokens de salida produciendo ~5188
- * caracteres que no validaban, y la reparacion compacta con 1400 tokens hacia
- * lo mismo: 1400 de razonamiento y contenido vacio. El problema no era
- * presupuesto sino que el modelo nunca entraba en modo "emitir el objeto".
+ * Con `response_format` el modelo elegia cuando y como cerrar, y CASE-09 gastaba
+ * 5000 tokens produciendo algo que no validaba: el problema no era presupuesto
+ * sino modo de generacion. Forzar una llamada a funcion obliga al proveedor a
+ * producir los argumentos de una firma concreta.
  *
- * Forzar una llamada a funcion cambia el modo de generacion: el proveedor tiene
- * que producir los argumentos de una firma concreta, no prosa libre que ademas
- * resulte ser JSON.
- *
- * === ESTO NO ES UNA SEXTA HERRAMIENTA DE NEGOCIO ===
- *
- * `emitir_dictamen_estructurado` NO pertenece al ToolRegistry, NO es ejecutable,
- * NO toca la base de datos, NO tiene efectos, NO aparece en la allowlist de
- * herramientas de dominio y NO sustituye a `registrar_dictamen`. Es
- * exclusivamente un CONTRATO DE SALIDA del proveedor: sus argumentos SON el
- * resultado, y nunca se ejecuta nada.
- *
- * Las cinco capacidades del enunciado siguen siendo las mismas.
+ * `emitir_dictamen_estructurado` NO es una sexta herramienta de negocio: no
+ * pertenece al ToolRegistry, no es ejecutable y no toca la base de datos. Es un
+ * CONTRATO DE SALIDA — sus argumentos SON el resultado.
  */
 
 export const FINALIZER_FUNCTION_NAME = 'emitir_dictamen_estructurado' as const;
@@ -139,12 +128,10 @@ export type ResultadoFinalizer =
 /**
  * Interpreta la respuesta del finalizer.
  *
- * Se acepta unicamente si hay exactamente una llamada, con el nombre correcto,
- * con argumentos que parsean como JSON y validan contra DictamenLLMSchema.
- * Cualquier otra cosa es un error explicito con su propio codigo: nada de
- * "intentar entender" una salida que no cumple el contrato.
- *
- * La funcion NUNCA se ejecuta. Los argumentos SON el resultado.
+ * Se acepta solo si hay exactamente una llamada, con el nombre correcto y
+ * argumentos que validan contra DictamenLLMSchema; cualquier otra cosa es error
+ * explicito con su propio codigo. La funcion NUNCA se ejecuta: los argumentos
+ * SON el resultado.
  */
 export function interpretarRespuestaFinalizer(response: ChatResponse): ResultadoFinalizer {
   const llamadas = response.message.tool_calls ?? [];

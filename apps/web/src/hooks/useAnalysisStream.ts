@@ -6,16 +6,12 @@ import type { AnalisisResultado, ErrorAnalisis, EstadoAnalisis } from '../types/
 /**
  * Ejecucion del analisis con streaming y cancelacion.
  *
- * Dos reglas:
+ * Al cancelar o fallar se conservan los eventos ya recibidos y el resultado
+ * previo: un error del proveedor no borra la pantalla.
  *
- * 1. Al cancelar o fallar se conservan los eventos ya recibidos y el resultado
- *    previo. Un error del proveedor no borra la pantalla.
- *
- * 2. Un error de DOMINIO que llego por `run.failed` (por ejemplo
- *    OUTPUT_TOKEN_LIMIT_EXCEEDED) tiene prioridad sobre cualquier error de
- *    transporte posterior. El backend ya dijo que fallo y por que; que despues
- *    se corte el socket no cambia el diagnostico, y pisarlo con un generico
- *    convierte una causa concreta en ruido.
+ * Un error de DOMINIO llegado por `run.failed` tiene prioridad sobre cualquier
+ * error de transporte posterior: el backend ya dijo que fallo y por que, y
+ * pisarlo con un generico convierte una causa concreta en ruido.
  */
 export function useAnalysisStream() {
   const [estado, setEstado] = useState<EstadoAnalisis>('idle');

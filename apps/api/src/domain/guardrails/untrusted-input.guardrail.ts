@@ -1,25 +1,19 @@
 import { fail, ok, type GuardrailFinding, type GuardrailOutcome } from './types.js';
 
 /**
- * G5 — Entrada no confiable.
+ * G5 — Entrada no confiable. `destino_fondos` lo escribe el solicitante: es
+ * DATO, nunca instruccion.
  *
- * `destino_fondos` lo escribe el solicitante. Es DATO, nunca instruccion.
+ * Este modulo NO es la defensa. La defensa es arquitectonica: el texto no entra
+ * al contexto decisional, las herramientas ejecutables salen de una allowlist en
+ * codigo, `registrar_dictamen` no se ofrece al modelo, los indicadores, los topes
+ * y la clave de idempotencia los pone el backend, la autorizacion humana es un
+ * endpoint separado y la base de datos tiene la ultima palabra.
  *
- * Lo importante primero: este modulo NO es la defensa. La defensa de G5 es
- * arquitectonica y esta en otro lado —
- *   - el texto jamas entra en el mensaje `system`, solo en un mensaje `user`
- *     aparte y serializado con JSON.stringify (no con etiquetas XML);
- *   - las herramientas ejecutables salen de una allowlist en codigo;
- *   - `registrar_dictamen` no se ofrece al modelo en absoluto;
- *   - los indicadores y los topes los pone el backend;
- *   - la clave de idempotencia la genera el backend;
- *   - la autorizacion humana es un endpoint separado;
- *   - la base de datos tiene la ultima palabra.
- *
- * Uno de los fixtures del seed contiene literalmente `</UNTRUSTED_APPLICANT_TEXT>`,
- * justamente para dejar constancia de que delimitar con etiquetas no sirve como
- * mecanismo de seguridad. Lo que sigue es deteccion para TRAZABILIDAD: marcar el
- * intento en la auditoria, no impedirlo.
+ * Un fixture del seed contiene literalmente `</UNTRUSTED_APPLICANT_TEXT>` para
+ * dejar constancia de que delimitar con etiquetas no es un mecanismo de
+ * seguridad. Lo que sigue es deteccion para TRAZABILIDAD: marcar el intento en
+ * la auditoria, no impedirlo.
  */
 
 const PATRONES: Array<{ code: string; re: RegExp }> = [
@@ -43,31 +37,25 @@ export function analizarEntradaNoConfiable(texto: string): UntrustedScan {
 }
 
 /**
- * Serializacion segura para el contexto del modelo. JSON.stringify escapa
- * comillas, saltos de linea y cualquier caracter de control, de modo que el
- * texto llega como un valor de cadena y no como estructura del mensaje.
+ * Serializacion segura: JSON.stringify escapa comillas, saltos de linea y
+ * caracteres de control, de modo que el texto llega como valor de cadena y no
+ * como estructura del mensaje.
  *
- * NOTA: desde FASE 3.3 el texto crudo ya NO viaja al contexto decisional. Esta
- * funcion se conserva para usos donde el texto si deba mostrarse serializado
- * (auditoria, depuracion), no para la llamada que produce el dictamen.
+ * Desde FASE 3.3 el texto crudo ya no viaja al contexto decisional; esto queda
+ * para usos donde si deba mostrarse serializado (auditoria, depuracion).
  */
 export function serializarTextoNoConfiable(texto: string): string {
   return JSON.stringify(texto);
 }
 
 /**
- * Vocabulario cerrado de destinos. Es la representacion SEGURA que sustituye al
+ * Vocabulario cerrado de destinos: la representacion SEGURA que sustituye al
  * texto crudo en el contexto decisional.
  *
- * Motivo: escapar el texto no basta. Mientras el texto del solicitante llegue
- * al modelo, sigue compitiendo por su atencion con las instrucciones legitimas,
- * y ninguna cantidad de delimitadores ni de "ignora lo que sigue" cambia eso.
- * La unica defensa robusta es que el texto no llegue.
- *
- * Lo que viaja es una etiqueta de un conjunto fijo. Un atacante puede, como
- * mucho, elegir cual de estas siete etiquetas se emite; no puede introducir
- * texto propio en el prompt. La superficie pasa de "cualquier cadena" a "una de
- * siete constantes que nosotros escribimos".
+ * Escapar no basta — mientras el texto del solicitante llegue al modelo compite
+ * por su atencion con las instrucciones legitimas. Lo que viaja es una etiqueta
+ * de un conjunto fijo: un atacante puede elegir cual de las siete se emite, no
+ * introducir texto propio en el prompt.
  */
 export const CATEGORIAS_DESTINO = [
   'capital_trabajo',

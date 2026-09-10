@@ -4,19 +4,11 @@ import type { CategoriaPolitica, Severidad, TipoRelacion } from '@credit/contrac
 /**
  * Corpus completo como bloque autoritativo de contexto.
  *
- * Con 30 politicas cabe entero en el prompt (~9 KB) y eso elimina de raiz un
- * modo de fallo que la evaluacion real expuso: `buscar_politica` funciona bien
- * en aislamiento, pero el modelo formulaba consultas que recuperaban evidencia
- * equivocada, y sobre esa evidencia decidia mal. Una decision no puede depender
- * de que el modelo acierte la consulta perfecta para enterarse de una regla
- * basica.
- *
- * `buscar_politica` sigue existiendo y sigue expuesta como herramienta: sirve
- * para profundizar. Lo que cambia es que ya no es la unica via de acceso.
- *
- * A ~500 politicas esto deja de caber y habria que volver a recuperacion:
- * hibrida (BM25 + embeddings), filtros por metadata, reranking y una metrica de
- * recall y precision de citas. Ver README.
+ * Con 30 politicas cabe entero (~9 KB) y elimina un modo de fallo que la
+ * evaluacion real expuso: el modelo formulaba consultas que recuperaban
+ * evidencia equivocada y decidia sobre ella. `buscar_politica` sigue expuesta
+ * para profundizar. A ~500 politicas habria que volver a recuperacion hibrida;
+ * ver README.
  */
 
 interface PolicyRow {

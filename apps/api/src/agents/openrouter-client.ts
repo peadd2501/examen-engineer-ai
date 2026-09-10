@@ -16,11 +16,8 @@ export interface ChatMessage {
    * Bloques de razonamiento del modelo.
    *
    * Se conservan UNICAMENTE para reenviarlos en el historial: algunos modelos
-   * con razonamiento exigen recibir de vuelta sus propios bloques en los turnos
-   * siguientes de una conversacion con tool calls, o pierden el hilo.
-   *
-   * Nunca se persisten, nunca se registran en logs y nunca salen por la API ni
-   * por SSE. Viven en memoria durante el run y se descartan con el.
+   * con razonamiento los exigen de vuelta en turnos con tool calls. Nunca se
+   * persisten, nunca se registran y nunca salen por la API ni por SSE.
    */
   reasoning_details?: unknown[];
 }

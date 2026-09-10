@@ -5,10 +5,9 @@ import { fail, ok, type GuardrailFinding, type GuardrailOutcome } from './types.
 /**
  * G2 — Coherencia numerica.
  *
- * Los indicadores del dictamen persistido SIEMPRE provienen del backend. Este
- * guardarrail existe para el caso en que el modelo devuelva indicadores de
- * todos modos: si difieren de los autoritativos se rechaza la persistencia,
- * porque significa que el modelo esta intentando sustituir el calculo.
+ * Los indicadores del dictamen persistido SIEMPRE vienen del backend. Si el
+ * modelo devuelve indicadores y difieren de los autoritativos se rechaza la
+ * persistencia: significa que esta intentando sustituir el calculo.
  */
 export function verificarCoherenciaNumerica(
   autoritativos: Indicadores,

@@ -2,13 +2,12 @@ import { createHash } from 'node:crypto';
 import { Decimal, SolicitudSchema, d, type Garantia, type Sector, type Solicitud } from '@credit/contracts';
 
 /**
- * Generador determinista de solicitudes sinteticas.
+ * Generador determinista de solicitudes sinteticas: mismo SEED -> mismos UUID,
+ * mismos montos, mismo orden.
  *
- * Reproducibilidad: mismo SEED -> mismos UUID, mismos montos, mismo orden.
- * El PRNG usa `number` porque genera *entradas* (enteros de quetzales, indices,
- * dias); en el momento en que un valor pasa a ser una cifra financiera se
- * construye con Decimal y se serializa con escala fija. Ningun calculo
- * monetario ocurre en punto flotante.
+ * El PRNG usa `number` porque genera *entradas* (enteros, indices, dias); en
+ * cuanto un valor pasa a ser cifra financiera se construye con Decimal y se
+ * serializa con escala fija. Ningun calculo monetario en punto flotante.
  */
 
 /** PRNG mulberry32: 32 bits de estado, sin dependencias, misma secuencia en cualquier plataforma. */

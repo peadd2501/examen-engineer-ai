@@ -20,10 +20,9 @@ export * from './tools/registry.js';
 /**
  * Las cinco capacidades del enunciado.
  *
- * `registrar_dictamen` esta presente como herramienta —con su esquema, su
- * validacion y su registro en tool_calls— pero con `exposedToModel: false`:
- * no viaja al proveedor y el loop rechaza ejecutarla si el modelo la nombra.
- * La invoca el backend despues de los guardarrailes. Ver engineering-notes.
+ * `registrar_dictamen` esta registrada pero con `exposedToModel: false`: no viaja
+ * al proveedor y el loop rechaza ejecutarla si el modelo la nombra. La invoca el
+ * backend despues de los guardarrailes.
  */
 export function buildToolRegistry(): ToolRegistry {
   return buildRegistry([

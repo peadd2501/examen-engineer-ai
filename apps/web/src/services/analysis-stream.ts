@@ -4,20 +4,18 @@ import { BASE_URL } from './base-url.js';
 /**
  * Cliente SSE del analisis.
  *
- * Se usa fetch + ReadableStream en vez de EventSource porque iniciar un
- * analisis es un POST con efectos. La cancelacion es el AbortController del
- * navegador: al abortar se cierra la conexion, el backend recibe 'close' y
- * propaga el signal hasta la llamada al proveedor.
+ * fetch + ReadableStream en vez de EventSource porque iniciar un analisis es un
+ * POST con efectos. La cancelacion es el AbortController del navegador: al
+ * abortar, el backend recibe 'close' y propaga el signal hasta el proveedor.
  */
 
 /**
  * Causas de fallo del TRANSPORTE, distinguidas una por una.
  *
- * `API_UNREACHABLE` queda reservado exclusivamente para un fetch que ni
- * siquiera llego a producir respuesta: red caida, DNS, TLS o CORS bloqueando la
- * respuesta. Todo lo demas tiene su propio codigo. Colapsarlo todo en
- * "API inalcanzable" fue lo que hizo invisible un problema de CORS durante una
- * sesion entera: el servidor estaba respondiendo perfectamente.
+ * `API_UNREACHABLE` queda reservado para un fetch que ni siquiera llego a
+ * producir respuesta. Colapsarlo todo en "API inalcanzable" fue lo que hizo
+ * invisible un problema de CORS durante una sesion entera, con el servidor
+ * respondiendo perfectamente.
  */
 export type StreamErrorCode =
   | 'API_UNREACHABLE'

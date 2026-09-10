@@ -9,25 +9,19 @@ import { HUMAN_AUTHORIZATION_THRESHOLD_GTQ } from './versions.js';
 /**
  * ATRIBUCION — que politicas aplico el backend por su cuenta.
  *
- * Problema que resuelve (visto en CASE-07): el backend determina
- * correctamente que un monto recomendado de Q400,000 exige autorizacion
- * humana —eso es POL-8.1— y marca PENDING_AUTHORIZATION. Pero las citas del
- * dictamen salen exclusivamente de los `policy_ids` que devolvio el modelo, y
- * el modelo no cito POL-8.1: desde FASE 3.4 la autorizacion humana ni siquiera
- * forma parte de su esquema de salida, asi que no tenia por que mencionarla.
- * Resultado: la regla se aplica y la evidencia de esa regla no aparece.
+ * Visto en CASE-07: el backend determina que un monto de Q400,000 exige
+ * autorizacion humana —eso es POL-8.1— pero las citas salian exclusivamente de
+ * los `policy_ids` del modelo, que no tenia por que mencionarla. Resultado: la
+ * regla se aplica y su evidencia no aparece.
  *
- * Principio: SI UNA CONDICION LA APLICA EL BACKEND DE FORMA DETERMINISTA, SU
- * EVIDENCIA NO PUEDE DEPENDER DE QUE EL MODELO SE ACUERDE DE CITARLA.
+ * Principio: si una condicion la aplica el backend de forma determinista, su
+ * evidencia no puede depender de que el modelo se acuerde de citarla. La solucion
+ * es generica, no una regla por caso: cada evaluacion determinista ya nombra su
+ * politica (`FactorRiesgo.politica`, `MotivoSinCobertura.politica`) y aqui se
+ * recolectan todas.
  *
- * La solucion es generica, no una regla por caso: cada evaluacion determinista
- * del sistema ya nombra la politica que la sustenta —`FactorRiesgo.politica`,
- * `MotivoSinCobertura.politica`— y aqui se recolectan todas. Una regla nueva que
- * respete esa convencion queda citada automaticamente, sin tocar este archivo.
- *
- * Estos identificadores NO son citas todavia: son referencias. El llamador las
- * hidrata desde la base igual que las del modelo, y pasan por G1 como todas las
- * demas. Aqui no se escribe texto de politica en ningun momento.
+ * No son citas todavia, son referencias: el llamador las hidrata desde la base y
+ * pasan por G1 como las demas.
  */
 
 export interface EntradaAtribucion {

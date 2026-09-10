@@ -12,15 +12,12 @@ interface Props {
 }
 
 /**
- * Resumen de la solicitud: datos principales, cifras reportadas, indicadores
- * calculados y destino de fondos, en un solo panel.
+ * Resumen de la solicitud: datos principales, cifras reportadas, indicadores y
+ * destino de fondos en un solo panel. Los bloques se separan por titulo y no por
+ * paneles, para que el chat entre en la primera pantalla.
  *
- * Los bloques se separan por titulo, no por lineas ni por paneles: menos ruido,
- * la misma lectura, y el chat entra en la primera pantalla.
- *
- * `destino_fondos` se presenta SIEMPRE como dato aportado por el solicitante,
- * nunca como mensaje del sistema. La indicacion es discreta pero no opcional:
- * el analista tiene que ver que ese texto no tiene autoridad.
+ * `destino_fondos` se presenta SIEMPRE como dato aportado por el solicitante: el
+ * analista tiene que ver que ese texto no tiene autoridad.
  */
 export function ApplicationDetail({ solicitud, indicadores, g5Detectado, patronesG5 }: Props) {
   const montoAlto = Number(solicitud.monto_solicitado) > 250_000;

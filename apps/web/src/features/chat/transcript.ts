@@ -5,28 +5,15 @@ import type { AnalisisResultado, ErrorAnalisis, EstadoAnalisis } from '../../typ
 /**
  * Transcripción del chat.
  *
- * === SEPARACIÓN DE RESPONSABILIDADES ===
+ * CHAT es conversación —la pregunta del analista y una respuesta en prosa—;
+ * PROGRESO son los pasos de ejecución. El chat no enumera eventos: hacerlo
+ * duplicaba la misma lista en pantalla y empujaba la respuesta hacia abajo.
  *
- *   CHAT      conversación: la pregunta del analista y una respuesta en prosa.
- *   PROGRESO  los pasos de ejecución, con su detalle técnico.
- *
- * El chat NO enumera eventos. Antes lo hacía y el resultado era que la misma
- * lista aparecía dos veces en pantalla —dentro de la burbuja y en el panel de
- * progreso— empujando la respuesta hacia abajo. Mientras el análisis corre, la
- * burbuja muestra solo un estado discreto; al terminar, la respuesta.
- *
- * === DE DÓNDE SALE LO QUE SE MUESTRA ===
- *
- * Todo texto de esta capa es constante escrita aquí o dato del resultado
- * autoritativo ya validado por el backend. Ningún texto generado por el modelo
- * ni ninguna etiqueta de evento entra a la burbuja: los eventos solo eligen
- * cuál de tres frases fijas se muestra durante la generación. La consecuencia
- * es que no hay superficie por la que puedan filtrarse razonamiento interno,
- * instrucciones de sistema ni contenido no verificado.
- *
- * El chat tampoco emite un dictamen propio: la narrativa se deriva del MISMO
- * objeto que alimenta el panel Dictamen, así que las dos vistas no pueden
- * contradecirse.
+ * Todo texto de esta capa es constante escrita aquí o dato del resultado ya
+ * validado por el backend. De los eventos se usa únicamente el `type`, nunca su
+ * texto, así que no hay superficie por la que puedan filtrarse razonamiento
+ * interno ni contenido no verificado. La narrativa se deriva del MISMO objeto que
+ * alimenta el panel Dictamen, así que las dos vistas no pueden contradecirse.
  */
 
 export type RolChat = 'usuario' | 'asistente';
@@ -59,10 +46,8 @@ export interface VistaAnalisis {
 /**
  * Estado discreto durante la generación.
  *
- * Tres frases fijas. Cuál se muestra lo decide el último evento recibido, no un
- * temporizador: si dice que está revisando políticas es porque el servidor
- * acaba de consultar una. Del evento se usa únicamente el `type`; su texto
- * nunca llega a la pantalla.
+ * Tres frases fijas; cuál se muestra lo decide el último evento recibido, no un
+ * temporizador. Del evento se usa únicamente el `type`.
  */
 export function estadoDeStreaming(eventos: AgentEvent[]): string {
   for (let i = eventos.length - 1; i >= 0; i -= 1) {

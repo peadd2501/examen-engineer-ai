@@ -5,16 +5,12 @@ import { ejecutarAgentLoop, type ChatFn } from './agent-orchestrator.js';
 import type { ToolRegistry } from './tools/registry.js';
 
 /**
- * Proveedor con respuestas guionadas. Ejecuta EL MISMO agent loop, la misma
- * allowlist de herramientas y el mismo parseo de structured output; lo unico
- * que se sustituye es la llamada HTTP al modelo.
+ * Proveedor con respuestas guionadas: mismo agent loop, misma allowlist y mismo
+ * parseo de structured output; solo se sustituye la llamada HTTP al modelo.
  *
- * Existe para probar de forma determinista lo que no debe depender del modelo:
- * guardarrailes, idempotencia, persistencia, limites del loop y clasificacion
- * de errores del proveedor.
- *
- * NO es un fallback de produccion. `buildAgentProvider` nunca lo devuelve; solo
- * lo instancian los tests y el harness cuando se le pide explicitamente.
+ * Prueba de forma determinista lo que no debe depender del modelo: guardarrailes,
+ * idempotencia, persistencia, limites del loop y clasificacion de errores. NO es
+ * un fallback de produccion: `buildAgentProvider` nunca lo devuelve.
  */
 export class ScriptedAgentProvider implements AgentProvider {
   readonly name = 'scripted';

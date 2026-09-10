@@ -18,12 +18,10 @@ export interface ToolContext {
 /**
  * Herramienta ya registrada, con los tipos borrados.
  *
- * El borrado es necesario porque los esquemas Zod hacen invariante al generico:
- * un `ToolDefinition<ZodObject<A>>` no es asignable a `ToolDefinition<ZodTypeAny>`.
- * En vez de recurrir a `any`, `defineTool` conserva el tipado estricto dentro de
+ * El borrado hace falta porque los esquemas Zod hacen invariante al generico. En
+ * vez de recurrir a `any`, `defineTool` conserva el tipado estricto dentro de
  * cada herramienta y expone `run`, que valida entrada y salida con los mismos
- * esquemas. El resultado: el registro es homogeneo y ninguna herramienta puede
- * devolver algo que no cumpla su contrato.
+ * esquemas.
  */
 export interface RegisteredTool {
   name: string;

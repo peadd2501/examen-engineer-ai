@@ -2,9 +2,8 @@
  * Prompt del sistema. Se registra en agent_runs.prompt_version.
  *
  * v2 (2026-09-08): el corpus completo viaja en el contexto y el modelo devuelve
- * identificadores de politica en vez de texto literal. El prompt se ajusta a
- * eso, pero el cambio de fondo es estructural: el schema de salida ya no admite
- * texto de politica. Un prompt no es un guardarrail.
+ * identificadores de politica, no texto literal. El cambio de fondo es que el
+ * schema de salida ya no admite texto de politica: un prompt no es un guardarrail.
  */
 export const SYSTEM_PROMPT_V1 = `Eres un asistente de PREANALISIS de credito PyME.
 

@@ -5,17 +5,13 @@ import { idCorto } from '../features/analysis/format.js';
 /**
  * Observabilidad, expandible.
  *
- * Únicamente metadata segura. Nunca razonamiento, `reasoning_details`,
+ * Únicamente metadata segura: nunca razonamiento, `reasoning_details`,
  * chain-of-thought, system prompt ni claves. De razonamiento se muestra el
  * contador de tokens, que es una métrica de costo.
  *
- * Dos fuentes, en este orden:
- *   1. el resultado en memoria, cuando el análisis acaba de correr;
- *   2. `GET /api/runs/:id`, cuando se restauró un dictamen persistido.
- *
- * Si ninguna tiene el dato, se muestra **N/D**. Nunca un cero inventado: un 0
- * de relleno es indistinguible de un 0 medido, y esta tabla existe justamente
- * para poder confiar en lo que dice.
+ * Dos fuentes: el resultado en memoria y, si se restauró un dictamen persistido,
+ * `GET /api/runs/:id`. Si ninguna tiene el dato se muestra **N/D**, nunca un cero
+ * inventado: sería indistinguible de un cero medido.
  */
 const ND = 'N/D';
 

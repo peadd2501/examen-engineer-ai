@@ -28,30 +28,22 @@ export const DictamenSchema = z.object({
 export type Dictamen = z.infer<typeof DictamenSchema>;
 
 /**
- * Lo unico que el modelo produce.
+ * Lo unico que el modelo produce. Diferencias con `Dictamen`: sin `indicadores`
+ * —los inyecta el backend (G2)—, sin `id_solicitud` libre y **sin citas**.
  *
- * Diferencias clave con `Dictamen`:
- *  - sin `indicadores`: los inyecta el backend (G2);
- *  - sin `id_solicitud` libre;
- *  - **sin citas**. El modelo devuelve `policy_ids`, es decir REFERENCIAS a
- *    politicas existentes. La terna citable (id, seccion, texto_literal) la
- *    construye el backend leyendo el corpus.
- *
- * El motivo es empirico: en la primera evaluacion contra un modelo real, el
- * modelo invento identificadores (POL-ELIG-001, CAP-001, POL-001) y textos
- * literales. Si el modelo no puede escribir el texto de una cita, no puede
+ * El modelo devuelve `policy_ids`, es decir REFERENCIAS a politicas existentes;
+ * la terna citable la construye el backend leyendo el corpus. El motivo es
+ * empirico: en la primera evaluacion real el modelo invento identificadores y
+ * textos literales. Si no puede escribir el texto de una cita, no puede
  * alucinarla. G1 sigue activo como ultima defensa.
  */
 /**
  * Limites de tamano de la salida del modelo.
  *
- * Existen porque un dictamen es pequeno: decision, monto, plazo, unas pocas
- * referencias y hasta cinco motivos. Con Nemotron, CASE-01 consumio los 5000
- * tokens de salida sin producir dictamen. Acotar el esquema le quita al modelo
- * el espacio para divagar, y ademas hace que una generacion descontrolada falle
- * en la validacion en vez de agotar el presupuesto en silencio.
- *
- * Los mismos numeros se replican en el JSON Schema que viaja al proveedor.
+ * Un dictamen es pequeno, pero con Nemotron CASE-01 consumio los 5000 tokens sin
+ * producirlo. Acotar el esquema le quita al modelo el espacio para divagar y hace
+ * que una generacion descontrolada falle en la validacion en vez de agotar el
+ * presupuesto en silencio. Los mismos numeros se replican en el JSON Schema.
  */
 export const LIMITES_DICTAMEN_LLM = {
   MOTIVOS_MIN: 1,

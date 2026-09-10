@@ -6,13 +6,10 @@ import { OpenRouterClient, type OpenRouterConfig } from './openrouter-client.js'
 import type { ToolRegistry } from './tools/registry.js';
 
 /**
- * Proveedor por defecto: acceso directo a OpenRouter con nuestro propio agent
- * loop. Se eligio sobre Mastra para conservar control explicito sobre el
- * contenido del contexto, la allowlist de herramientas, los limites, el
- * structured output y la observabilidad.
- *
- * Un futuro MastraAgentProvider implementaria esta misma interfaz con su
- * propio loop; los guardarrailes y la persistencia quedan fuera y no cambian.
+ * Proveedor por defecto: OpenRouter directo con nuestro propio agent loop, para
+ * conservar control explicito sobre el contexto, la allowlist de herramientas,
+ * los limites, el structured output y la observabilidad. Otro proveedor
+ * implementaria esta misma interfaz; guardarrailes y persistencia no cambian.
  */
 export class DirectOpenRouterAgentProvider implements AgentProvider {
   readonly name = 'direct-openrouter';

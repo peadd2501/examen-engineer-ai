@@ -11,9 +11,8 @@ import { fail, ok, type GuardrailFinding, type GuardrailOutcome } from './types.
  * G4 — Autorizacion humana.
  *
  * La regla es del backend, no del modelo: si el monto recomendado supera
- * Q250,000.00 o el nivel de riesgo es ALTO, el dictamen no puede nacer firme.
- * Lo que el modelo haya puesto en `requiere_autorizacion_humana` es una
- * sugerencia que se ignora; aqui se recalcula.
+ * Q250,000.00 o el riesgo es ALTO, el dictamen no puede nacer firme. Lo que el
+ * modelo puso en `requiere_autorizacion_humana` se ignora y se recalcula aqui.
  */
 export function requiereAutorizacionHumana(montoRecomendado: string | null, nivelRiesgo: NivelRiesgo): boolean {
   if (nivelRiesgo === 'ALTO') return true;
@@ -22,21 +21,14 @@ export function requiereAutorizacionHumana(montoRecomendado: string | null, nive
 }
 
 /**
- * Escalar a comite y requerir autorizacion humana NO son lo mismo.
+ * Comite y autorizacion humana son flujos distintos:
+ *   ESCALADO_A_COMITE -> PENDING_COMMITTEE. No hay recomendacion que autorizar;
+ *   resuelve el comite, desde cero.
+ *   requiere_autorizacion_humana -> PENDING_AUTHORIZATION. Hay recomendacion
+ *   firme y necesita firma humana antes de surtir efecto.
  *
- *   ESCALADO_A_COMITE  -> "el sistema no pudo producir una recomendacion
- *                          defendible". No hay nada que autorizar. Resuelve el
- *                          comite, desde cero. Estado: PENDING_COMMITTEE.
- *
- *   requiere_autorizacion_humana -> "hay una recomendacion firme y necesita la
- *                          firma de un humano antes de surtir efecto".
- *                          Estado: PENDING_AUTHORIZATION.
- *
- * Mezclarlos producia escalamientos marcados como pendientes de autorizacion,
- * que es una contradiccion: confirmar un escalamiento no significa nada, porque
- * no hay recomendacion que confirmar. Y no debilita G4: un escalamiento ya no
- * es ejecutable por definicion, mientras que la unica ruta hacia CONFIRMED
- * sigue siendo PENDING_AUTHORIZATION con firma humana.
+ * Mezclarlos producia escalamientos marcados como pendientes de autorizacion. No
+ * debilita G4: la unica ruta hacia CONFIRMED sigue siendo PENDING_AUTHORIZATION.
  */
 export interface ResolucionAutorizacion {
   requiereAutorizacion: boolean;

@@ -61,33 +61,24 @@ function origenPermitido(origen: string | undefined): string | null {
 /**
  * Streaming del analisis por SSE.
  *
- * Es POST porque inicia una ejecucion con efectos, asi que el frontend lo
- * consume con fetch + ReadableStream en vez de EventSource. La cancelacion
- * viaja por el cierre de la conexion: el AbortController del navegador cierra
- * el request, Fastify emite 'close' y ese signal se propaga hasta la llamada
- * al proveedor.
- *
- * Se transmite unicamente progreso, acciones, fuentes y resultado. Nunca
- * razonamiento, prompt interno ni tokens del modelo.
+ * Es POST porque inicia una ejecucion con efectos, asi que el frontend lo consume
+ * con fetch + ReadableStream en vez de EventSource. La cancelacion viaja por el
+ * cierre de la conexion hasta la llamada al proveedor. Se transmite progreso,
+ * acciones, fuentes y resultado; nunca razonamiento, prompt interno ni tokens.
  */
 export async function agentStreamRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/applications/:id/analyze/stream', async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const body = Body.parse(request.body ?? {});
 
-    // Se toma control del socket: a partir de aqui Fastify no intenta enviar su
-    // propia respuesta. Sin esto el stream escribe bien pero nunca cierra,
-    // porque Fastify sigue esperando serializar un payload.
+    // Se toma control del socket: sin esto el stream escribe bien pero nunca
+    // cierra, porque Fastify sigue esperando serializar un payload.
     //
-    // El precio de hijack() es que TODOS los headers que @fastify/cors habia
-    // preparado con reply.header() se pierden: esos viven en el objeto reply de
-    // Fastify y se vuelcan al socket al enviar, cosa que ya no ocurre. El
-    // preflight OPTIONS seguia respondiendo 204 correctamente porque lo maneja
-    // el plugin antes de llegar aqui, asi que el problema era invisible desde
-    // el lado del servidor: el navegador recibia los eventos y los descartaba
-    // por falta de Access-Control-Allow-Origin.
-    //
-    // Por eso los headers CORS se escriben explicitamente sobre reply.raw.
+    // El precio de hijack() es que se pierden los headers que @fastify/cors habia
+    // preparado con reply.header(). El preflight OPTIONS seguia respondiendo 204,
+    // asi que el problema era invisible desde el servidor: el navegador recibia
+    // los eventos y los descartaba por falta de Access-Control-Allow-Origin. Por
+    // eso los headers CORS se escriben explicitamente sobre reply.raw.
     reply.hijack();
 
     const origen = origenPermitido(request.headers.origin);

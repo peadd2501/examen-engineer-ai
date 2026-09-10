@@ -7,14 +7,10 @@ interface PolicyRow { id: string; section: string; text: string; active: boolean
 /**
  * G1 — Cita verificable.
  *
- * No basta con que exista la politica. Se exige que la terna
- * (id_politica, seccion, texto_literal) coincida EXACTAMENTE con la fila del
- * corpus. Un id correcto con texto inventado, o un texto real atribuido a otra
- * seccion, son citas falsas.
- *
- * Se comparan las cadenas normalizadas solo en espacios en blanco: un modelo
- * puede reflowear saltos de linea sin que eso sea una cita falsa, pero no puede
- * cambiar una palabra ni una cifra.
+ * No basta con que exista la politica: la terna (id_politica, seccion,
+ * texto_literal) debe coincidir EXACTAMENTE con la fila del corpus. Se normalizan
+ * solo los espacios en blanco — reflowear saltos de linea vale, cambiar una
+ * palabra o una cifra no.
  */
 function normalizar(texto: string): string {
   return texto.replace(/\s+/g, ' ').trim();

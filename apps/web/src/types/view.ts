@@ -32,10 +32,9 @@ export interface AnalisisUsage {
 /**
  * Resultado del analisis.
  *
- * Los campos de ejecucion son nullables a proposito: cuando se restaura un
- * dictamen persistido, esa metadata pertenece al `agent_run`, no al dictamen.
- * Si el run no esta disponible se muestra N/D. Nunca se rellena con ceros,
- * porque un 0 inventado es indistinguible de un 0 medido.
+ * Los campos de ejecucion son nullables a proposito: al restaurar un dictamen
+ * persistido esa metadata pertenece al `agent_run`. Si no esta disponible se
+ * muestra N/D, nunca un cero inventado.
  */
 export interface AnalisisResultado {
   /** null cuando el dictamen se restauro y no tiene run asociado. */

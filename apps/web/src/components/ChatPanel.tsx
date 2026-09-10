@@ -17,14 +17,11 @@ interface Props {
  * Chat del analista.
  *
  * Es la vista conversacional del MISMO analisis que alimenta el panel Dictamen:
- * escribir aqui dispara el stream SSE existente pasando el texto como consulta
- * del analista. No hay endpoint nuevo ni segundo backend.
+ * escribir aqui dispara el stream SSE existente. No hay endpoint nuevo.
  *
- * El hilo es conversación: la pregunta del analista, un estado discreto
- * mientras se genera, y la respuesta. Los pasos de ejecución NO viven aquí,
- * sino en «Progreso del análisis»: duplicarlos empujaba la respuesta fuera de
- * la vista. El contenido lo construye `features/chat/transcript.ts`, que solo
- * emite constantes propias y datos del dictamen ya validado.
+ * Aqui va conversación; los pasos de ejecución viven en «Progreso del análisis».
+ * El contenido lo construye `features/chat/transcript.ts`, que solo emite
+ * constantes propias y datos del dictamen ya validado.
  */
 export function ChatPanel({ mensajes, eventos, corriendo, habilitado, onEnviar, onCancelar }: Props) {
   const [borrador, setBorrador] = useState('');

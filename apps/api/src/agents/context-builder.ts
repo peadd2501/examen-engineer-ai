@@ -7,21 +7,10 @@ import type { ChatMessage } from './openrouter-client.js';
 /**
  * Construye el contexto decisional.
  *
- * FASE 3.3: el texto crudo de `destino_fondos` YA NO VIAJA al modelo.
- *
- * Antes se enviaba en un mensaje aparte, serializado con JSON.stringify. Eso
- * impedia que rompiera la estructura del mensaje, pero no impedia lo otro: que
- * compitiera por la atencion del modelo con las instrucciones legitimas.
- * Escapar no es lo mismo que excluir, y ningun delimitador ni ninguna
- * instruccion de "ignora lo que sigue" resuelve eso.
- *
- * En su lugar viaja `resumirDestinoFondos()`: una etiqueta de un vocabulario
- * cerrado de siete valores mas dos metricas. Un atacante puede elegir cual de
- * esas siete etiquetas se emite; no puede meter texto propio en el prompt.
- *
- * El texto crudo sigue existiendo: persistido en la base, visible en la UI como
- * dato no confiable, analizado por la deteccion de G5 y registrado como
- * hallazgo. Lo unico que cambia es que no entra en la llamada que decide.
+ * El texto crudo de `destino_fondos` NO viaja al modelo: escapar no es excluir,
+ * y mientras llegue compite por la atencion con las instrucciones legitimas. En
+ * su lugar viaja `resumirDestinoFondos()`, una etiqueta de vocabulario cerrado.
+ * El texto crudo sigue persistido, visible en la UI y analizado por G5.
  */
 export function construirMensajes(
   solicitud: Solicitud,
@@ -91,15 +80,10 @@ export function construirMensajes(
 /**
  * JSON Schema del structured output, generado dinamicamente.
  *
- * Los limites de tamano son EXACTAMENTE los de `DictamenLLMSchema`: se leen de
- * la misma constante, para que no puedan divergir. El proveedor los aplica
- * durante la generacion; Zod los vuelve a aplicar despues, porque no todo
- * proveedor respeta el schema.
- *
+ * Los limites de tamano se leen de `DictamenLLMSchema` para que no diverjan.
  * `policy_ids` lleva como `enum` los identificadores reales del corpus de este
- * run. Un modelo que respete el schema no puede devolver POL-ELIG-001 ni
- * ningun otro identificador inventado: el valor no esta en el enum. Es la
- * defensa que actua ANTES de G1, no en lugar de G1.
+ * run: un modelo que respete el schema no puede inventar un id. Actua ANTES de
+ * G1, no en lugar de G1.
  */
 export function construirResponseFormat(idsValidos: string[]): Record<string, unknown> {
   return {
@@ -162,16 +146,10 @@ export function esquemaDictamen(idsValidos: string[]): Record<string, unknown> {
 /**
  * Contexto de la reparacion por truncacion.
  *
- * Se construye DESDE CERO. No incluye:
- *  - la salida truncada anterior (reenviar 5000 tokens rotos invita a repetirlos);
- *  - el historial de herramientas;
- *  - el texto crudo del solicitante;
- *  - los textos completos de las politicas.
- *
- * Incluye solo lo autoritativo minimo para poder emitir el dictamen: los
- * indicadores calculados por el backend, los datos estructurados de la
- * solicitud y un indice compacto de politicas (id, seccion y categoria). El
- * modelo solo devuelve identificadores, asi que no necesita los textos.
+ * Se construye DESDE CERO: sin la salida truncada anterior, sin historial de
+ * herramientas, sin texto crudo del solicitante y sin textos de politicas. Solo
+ * lo autoritativo minimo —indicadores, solicitud e indice compacto de
+ * politicas—, porque el modelo solo devuelve identificadores.
  */
 export function construirMensajesReparacion(
   solicitud: Solicitud,

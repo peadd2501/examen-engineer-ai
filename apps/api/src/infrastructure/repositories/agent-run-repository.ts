@@ -7,14 +7,11 @@ import type {
 } from '../../agents/agent-provider.js';
 
 /**
- * Observabilidad. Se persiste lo suficiente para reconstruir que hizo el agente
- * y cuanto costo, sin guardar secretos ni razonamiento interno del modelo.
+ * Observabilidad: lo suficiente para reconstruir que hizo el agente y cuanto
+ * costo, sin secretos ni razonamiento interno del modelo.
  *
- * De razonamiento se guarda solo el CONTEO de tokens (`reasoning_tokens`), que
- * es una metrica de costo. Los `reasoning_details` —el contenido del
- * razonamiento— no se persisten nunca: viven en memoria durante el run porque
- * el protocolo del proveedor exige reenviarlos en los turnos siguientes, y se
- * descartan al terminar.
+ * De razonamiento se guarda solo el CONTEO de tokens (`reasoning_tokens`), que es
+ * una metrica de costo. Los `reasoning_details` no se persisten nunca.
  */
 
 export interface AgentRunStart {
